@@ -115,3 +115,41 @@ test('car catalogue: unique brands, non-empty unique models, year range', () => 
   assert.equal(years.at(-1), 1980);
   assert.match(mapsSearchUrl('ورشة'), /^https:\/\/www\.google\.com\/maps\/search\/\?api=1&query=/);
 });
+
+import { haversineKm, nearbyWorkshops, ratingSummary, warrantyInfo, newWarranty } from '../js/logic.js';
+import { DEMO_WORKSHOPS, SPECIALTIES } from '../js/market.js';
+import { AREAS } from '../js/places.js';
+
+test('haversine distance is roughly right (Tahrir → Nasr City ≈ 9–11 km)', () => {
+  const d = haversineKm({ lat: 30.0444, lng: 31.2357 }, { lat: 30.0566, lng: 31.3301 });
+  assert.ok(d > 8 && d < 11, String(d));
+});
+
+test('nearbyWorkshops filters by radius and specialty, nearest first', () => {
+  const nasr = AREAS.find(a => a.name === 'مدينة نصر');
+  const near = nearbyWorkshops(DEMO_WORKSHOPS, nasr, { radiusKm: 10 });
+  assert.ok(near.length >= 2);
+  assert.ok(near.every(w => w.distanceKm <= 10));
+  assert.equal(near[0].id, 'demo-1');
+  assert.ok(near.every((w, i) => i === 0 || near[i - 1].distanceKm <= w.distanceKm));
+  const tires = nearbyWorkshops(DEMO_WORKSHOPS, nasr, { specialty: 'tires' });
+  assert.deepEqual(tires.map(w => w.id), ['demo-2']);
+  assert.equal(nearbyWorkshops(DEMO_WORKSHOPS, null).length, DEMO_WORKSHOPS.length);
+});
+
+test('demo workshops are flagged and use known specialties', () => {
+  for (const w of DEMO_WORKSHOPS) {
+    assert.equal(w.demo, true);
+    assert.ok(w.specialties.every(s => SPECIALTIES[s]), w.id);
+  }
+});
+
+test('ratingSummary and warranty window', () => {
+  assert.deepEqual(ratingSummary([]), { avg: 0, count: 0 });
+  assert.deepEqual(ratingSummary([{ rating: 5 }, { rating: 4 }]), { avg: 4.5, count: 2 });
+  const w = newWarranty('demo-1', '2026-10-01', 30);
+  assert.equal(w.until, '2026-10-31');
+  assert.equal(warrantyInfo({ warranty: w }, '2026-10-31').active, true);
+  assert.equal(warrantyInfo({ warranty: w }, '2026-11-01').active, false);
+  assert.equal(warrantyInfo({}, '2026-11-01'), null);
+});

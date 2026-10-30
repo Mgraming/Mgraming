@@ -215,3 +215,41 @@ export function workshopDirectory(cars, saved = []) {
     .map(e => ({ ...e, types: [...e.types] }))
     .sort((a, b) => (b.rating || 0) - (a.rating || 0) || b.visits - a.visits || a.name.localeCompare(b.name, 'ar'));
 }
+
+// ---------- marketplace ----------
+
+export function haversineKm(a, b) {
+  const R = 6371;
+  const rad = d => (d * Math.PI) / 180;
+  const dLat = rad(b.lat - a.lat);
+  const dLng = rad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+export function ratingSummary(reviews = []) {
+  if (!reviews.length) return { avg: 0, count: 0 };
+  const avg = reviews.reduce((s, r) => s + r.rating, 0) / reviews.length;
+  return { avg: Math.round(avg * 10) / 10, count: reviews.length };
+}
+
+// Workshops within radiusKm of loc (all of them, unsorted by distance, when loc is unknown), nearest first.
+export function nearbyWorkshops(list, loc, { radiusKm = Infinity, specialty = '' } = {}) {
+  return list
+    .filter(w => !specialty || w.specialties.includes(specialty))
+    .map(w => ({ ...w, distanceKm: loc && w.lat != null ? haversineKm(loc, w) : null }))
+    .filter(w => w.distanceKm == null || w.distanceKm <= radiusKm)
+    .sort((a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity));
+}
+
+// Warranty window for a job done through an app workshop: active until `until` (inclusive).
+export function warrantyInfo(record, today) {
+  if (!record?.warranty) return null;
+  const until = record.warranty.until;
+  const daysLeft = daysBetween(today, until);
+  return { ...record.warranty, daysLeft, active: daysLeft >= 0 };
+}
+
+export function newWarranty(workshopId, date, days) {
+  return { workshopId, from: date, until: formatDate(parseDate(date) + days * DAY), days, claims: [] };
+}

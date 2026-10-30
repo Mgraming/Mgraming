@@ -53,6 +53,7 @@ export const WORKSHOP_CATEGORIES = [
   { id: 'parts',      icon: '🔩', label: 'قطع غيار',                 query: b => `قطع غيار ${b}` },
 ];
 
-export function mapsSearchUrl(query) {
-  return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(query + ' بالقرب مني');
+// `near` is an area name when the owner picked one; otherwise Maps uses the device location.
+export function mapsSearchUrl(query, near = '') {
+  return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(`${query} ${near || 'بالقرب مني'}`);
 }

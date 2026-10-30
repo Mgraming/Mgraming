@@ -1,0 +1,42 @@
+// Approximate centre points for common areas, used when the owner picks an area instead of sharing GPS.
+// Accuracy is "neighbourhood level" — good enough for a nearby-workshops radius, not for navigation.
+export const AREAS = [
+  { gov: 'القاهرة', name: 'مدينة نصر', lat: 30.0566, lng: 31.3301 },
+  { gov: 'القاهرة', name: 'مصر الجديدة', lat: 30.0911, lng: 31.3225 },
+  { gov: 'القاهرة', name: 'التجمع الخامس', lat: 30.0074, lng: 31.4913 },
+  { gov: 'القاهرة', name: 'المعادي', lat: 29.9602, lng: 31.2569 },
+  { gov: 'القاهرة', name: 'وسط البلد', lat: 30.0444, lng: 31.2357 },
+  { gov: 'القاهرة', name: 'الزمالك', lat: 30.0609, lng: 31.2197 },
+  { gov: 'القاهرة', name: 'شبرا', lat: 30.0960, lng: 31.2450 },
+  { gov: 'القاهرة', name: 'العبور', lat: 30.2286, lng: 31.4797 },
+  { gov: 'القاهرة', name: 'الشروق', lat: 30.1427, lng: 31.6286 },
+  { gov: 'الجيزة', name: 'المهندسين', lat: 30.0560, lng: 31.2010 },
+  { gov: 'الجيزة', name: 'الدقي', lat: 30.0385, lng: 31.2123 },
+  { gov: 'الجيزة', name: 'الهرم وفيصل', lat: 29.9870, lng: 31.1520 },
+  { gov: 'الجيزة', name: '٦ أكتوبر', lat: 29.9285, lng: 30.9188 },
+  { gov: 'الجيزة', name: 'الشيخ زايد', lat: 30.0444, lng: 30.9760 },
+  { gov: 'الإسكندرية', name: 'سموحة', lat: 31.2156, lng: 29.9553 },
+  { gov: 'الإسكندرية', name: 'وسط الإسكندرية', lat: 31.2001, lng: 29.9187 },
+  { gov: 'الإسكندرية', name: 'العجمي', lat: 31.0963, lng: 29.7604 },
+  { gov: 'القليوبية', name: 'بنها', lat: 30.4660, lng: 31.1858 },
+  { gov: 'الدقهلية', name: 'المنصورة', lat: 31.0409, lng: 31.3785 },
+  { gov: 'الغربية', name: 'طنطا', lat: 30.7865, lng: 31.0004 },
+  { gov: 'الشرقية', name: 'الزقازيق', lat: 30.5877, lng: 31.5020 },
+  { gov: 'دمياط', name: 'دمياط', lat: 31.4175, lng: 31.8144 },
+  { gov: 'الإسماعيلية', name: 'الإسماعيلية', lat: 30.5965, lng: 32.2715 },
+  { gov: 'بورسعيد', name: 'بورسعيد', lat: 31.2653, lng: 32.3019 },
+  { gov: 'السويس', name: 'السويس', lat: 29.9668, lng: 32.5498 },
+  { gov: 'المنيا', name: 'المنيا', lat: 28.1099, lng: 30.7503 },
+  { gov: 'أسيوط', name: 'أسيوط', lat: 27.1809, lng: 31.1837 },
+  { gov: 'الأقصر', name: 'الأقصر', lat: 25.6872, lng: 32.6396 },
+  { gov: 'أسوان', name: 'أسوان', lat: 24.0889, lng: 32.8998 },
+  { gov: 'البحر الأحمر', name: 'الغردقة', lat: 27.2579, lng: 33.8116 },
+];
+
+export const RADII = [
+  { km: 5, label: '٥ كم' },
+  { km: 10, label: '١٠ كم' },
+  { km: 25, label: '٢٥ كم' },
+  { km: 50, label: '٥٠ كم' },
+  { km: Infinity, label: 'كل مصر' },
+];
