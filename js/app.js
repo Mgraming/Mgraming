@@ -14,6 +14,8 @@ import {
 import {
   viewWorkshops, viewShop, viewChat, viewJoin, findShop, warrantyBlock, bindWarranty,
 } from './shops.js';
+import { viewBiz, viewInbox } from './biz.js';
+import { viewParts, viewStore, viewCart, viewJoinStore, viewStoreBiz } from './parts.js';
 
 // ---------- small pieces ----------
 
@@ -156,12 +158,27 @@ function viewWelcome() {
     </section>
     <h2 class="section-title">ضيف عربيتك</h2>
     ${carForm()}
+    <h2 class="section-title">لأصحاب الأعمال</h2>
+    ${bizAccounts()}
     <a class="join-cta" href="#join">
       <span class="join-icon">${icon('store')}</span>
-      <span class="grow"><b>صاحب ورشة؟</b><small>اعمل صفحة لورشتك على باسبور</small></span>
+      <span class="grow"><b>صاحب ورشة؟</b><small>صفحة لورشتك وداشبورد لدخلك وربحك</small></span>
+      ${icon('chevron-left')}
+    </a>
+    <a class="join-cta" href="#join-store">
+      <span class="join-icon">${icon('package')}</span>
+      <span class="grow"><b>صاحب محل قطع غيار؟</b><small>ارفع الكتالوج وبيع لأصحاب العربيات اللي حواليك</small></span>
       ${icon('chevron-left')}
     </a>`;
   bindCarForm(null);
+}
+
+// The business pages this device manages (local until accounts exist on the server).
+function bizAccounts() {
+  const shops = state.market.listings.map(w => ({ href: `#biz/${w.id}`, ic: 'wrench', name: w.name, sub: 'داشبورد الورشة' }));
+  const stores = state.market.stores.map(st => ({ href: `#store-biz/${st.id}`, ic: 'package', name: st.name, sub: 'داشبورد المحل' }));
+  const all = [...shops, ...stores];
+  return all.length ? `<ul class="menu card">${all.map(a => `<li><a href="${esc(a.href)}">${icon(a.ic)}<span><b>${esc(a.name)}</b><small class="muted"> • ${a.sub}</small></span>${icon('chevron-left', 'chev')}</a></li>`).join('')}</ul>` : '';
 }
 
 function viewHome(car) {
@@ -473,7 +490,12 @@ function viewMore(car) {
       ${item('#lights', 'triangle-alert', 'دليل لمبات التابلوه')}
       ${item('#car', 'pencil', 'بيانات العربية والرخصة والتأمين')}
       ${item('#newcar', 'car', 'ضيف عربية تانية')}
-      ${item('#join', 'store', 'سجّل ورشتك على باسبور')}
+    </ul>
+    <h2 class="section-title">لأصحاب الأعمال</h2>
+    ${bizAccounts()}
+    <ul class="menu card">
+      ${item('#join', 'wrench', 'سجّل ورشتك على باسبور')}
+      ${item('#join-store', 'package', 'افتح محل قطع غيار على باسبور')}
     </ul>
     <ul class="menu card">
       <li><label class="file-link">${icon('download')}<span>استيراد باسبور (عربية اشتريتها)</span><input type="file" accept="application/json,.json" id="import" hidden></label></li>
@@ -545,7 +567,12 @@ function renderCarSwitch() {
 
 document.getElementById('car-switch').onchange = e => { state.activeCarId = e.target.value; persist(); render(); };
 
-const TAB_OF = { report: 'passport', shop: 'workshops', chat: 'workshops', join: 'workshops' };
+const TAB_OF = { report: 'passport', shop: 'workshops', chat: 'workshops', join: 'workshops', parts: 'workshops', store: 'workshops', cart: 'workshops', 'join-store': 'workshops' };
+// Pages a workshop or parts-store owner can open without having a car in the app.
+const NO_CAR_ROUTES = {
+  join: arg => viewJoin(arg), 'join-store': arg => viewJoinStore(arg), biz: arg => viewBiz(arg), 'store-biz': arg => viewStoreBiz(arg),
+  inbox: arg => viewInbox(arg), shop: arg => viewShop(arg), store: arg => viewStore(arg, null),
+};
 
 function render() {
   const [route, ...rest] = (location.hash.slice(1) || 'home').split('/');
@@ -559,8 +586,7 @@ function render() {
   document.body.dataset.route = route;
   window.scrollTo(0, 0);
 
-  if (!car && route === 'join') return viewJoin();
-  if (!car && route === 'shop') return viewShop(arg);
+  if (!car && NO_CAR_ROUTES[route]) return NO_CAR_ROUTES[route](arg);
   if (!car || route === 'newcar') {
     if (car) { view.innerHTML = '<h1 class="page-title">عربية جديدة</h1>' + carForm(); bindCarForm(null); }
     else viewWelcome();
@@ -577,7 +603,14 @@ function render() {
     workshops: () => viewWorkshops(car),
     shop: () => viewShop(arg),
     chat: () => viewChat(arg),
-    join: () => viewJoin(),
+    join: () => viewJoin(arg),
+    'join-store': () => viewJoinStore(arg),
+    parts: () => viewParts(car),
+    store: () => viewStore(arg, car),
+    cart: () => viewCart(car),
+    biz: () => viewBiz(arg),
+    'store-biz': () => viewStoreBiz(arg),
+    inbox: () => viewInbox(arg),
     lights: () => viewLights(),
     car: () => { view.innerHTML = '<h1 class="page-title">بيانات العربية</h1>' + carForm(car); bindCarForm(car); },
   }[route] || (() => viewHome(car)))();

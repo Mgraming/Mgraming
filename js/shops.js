@@ -75,7 +75,7 @@ let filter = { specialty: '' };
 
 export function viewWorkshops(car) {
   if (!state.location && !state.skipLocation) {
-    view.innerHTML = `<h1 class="page-title">الورش ومراكز الصيانة</h1>${locationGate()}
+    view.innerHTML = `<h1 class="page-title">ورش وقطع غيار</h1>${locationGate()}
       <button class="link center" id="loc-skip">اعرض كل الورش من غير تحديد مكان</button>`;
     document.getElementById('loc-gps').onclick = async () => { if (await useGps()) rerender(); };
     document.getElementById('loc-area').onclick = async () => { if (await pickArea()) rerender(); };
@@ -89,7 +89,11 @@ export function viewWorkshops(car) {
   const near = state.location?.source === 'area' ? state.location.label : '';
 
   view.innerHTML = `
-    <h1 class="page-title">الورش ومراكز الصيانة</h1>
+    <h1 class="page-title">ورش وقطع غيار</h1>
+    <nav class="seg" aria-label="القسم">
+      <a href="#workshops" class="on">${icon('wrench')} ورش</a>
+      <a href="#parts">${icon('package')} قطع غيار</a>
+    </nav>
     <button class="loc-bar" id="loc-change">
       <span class="loc-dot">${icon('map-pin')}</span>
       <span class="grow"><small>بندوّر حوالين</small><b>${esc(locationLabel())}</b></span>
@@ -250,6 +254,7 @@ export function viewShop(id) {
       </div>
     </section>
 
+    ${state.market.listings.includes(w) ? `<a class="notice" href="#biz/${esc(id)}">${icon('gauge')}<span>دي ورشتك. <b>افتح الداشبورد</b></span></a>` : ''}
     <div class="action-row">
       <a class="btn primary" href="#chat/${esc(id)}">${icon('message-circle')} كلّم الورشة</a>
       <button class="btn" id="book">${icon('calendar')} احجز معاد</button>
@@ -437,35 +442,38 @@ export function bindWarranty(rec) {
 
 // ---------- workshop sign-up ----------
 
-export function viewJoin() {
-  let loc = null;
+// id: edit an existing local listing; omitted: new workshop sign-up.
+export function viewJoin(id) {
+  const existing = id ? state.market.listings.find(w => w.id === id) : null;
+  let loc = existing ? AREAS.find(a => a.name === existing.area) || { name: existing.area, gov: '', lat: existing.lat, lng: existing.lng } : null;
+  const v = existing || {};
   view.innerHTML = `
-    <a class="back" href="#workshops">${icon('chevron-left', 'flip')} الورش</a>
+    <a class="back" href="${existing ? `#biz/${esc(id)}` : '#workshops'}">${icon('chevron-left', 'flip')} ${existing ? 'الداشبورد' : 'الورش'}</a>
     <section class="join-hero">
-      <h1>انضم لباسبور كورشة</h1>
-      <p>صفحة لورشتك فيها أسعارك وتقييمات عملا حقيقيين، وعملا جايين لك من المنطقة. وضمان التطبيق بيطمّن العميل إنه يجرّبك.</p>
+      <h1>${existing ? 'عدّل صفحة الورشة' : 'انضم لباسبور كورشة'}</h1>
+      ${existing ? '' : '<p>صفحة لورشتك فيها أسعارك وتقييمات عملا حقيقيين، وعملا جايين لك من المنطقة، وداشبورد تعرف منه دخلك وربحك. وضمان التطبيق بيطمّن العميل إنه يجرّبك.</p>'}
     </section>
     <form id="join-form" class="card form">
-      <label>اسم الورشة*<input name="name" required></label>
+      <label>اسم الورشة*<input name="name" required value="${esc(v.name)}"></label>
       <div class="row2">
-        <label>اسم المسؤول*<input name="owner" required></label>
-        <label>الموبايل*<input name="phone" type="tel" dir="ltr" required></label>
+        <label>اسم المسؤول*<input name="owner" required value="${esc(v.owner)}"></label>
+        <label>الموبايل*<input name="phone" type="tel" dir="ltr" required value="${esc(v.phone)}"></label>
       </div>
       <p class="muted small">الموبايل للتواصل مع فريق باسبور بس، ومش بيظهر للعملا. العملا بيكلموك من المحادثة جوه التطبيق.</p>
 
       <div class="field">
         <span class="field-label">المكان*</span>
-        <button type="button" class="select-btn empty" id="join-loc"><span>اختار منطقة الورشة</span>${icon('chevron-down', 'tiny')}</button>
+        <button type="button" class="select-btn ${loc ? '' : 'empty'}" id="join-loc"><span>${loc ? esc(loc.name) : 'اختار منطقة الورشة'}</span>${icon('chevron-down', 'tiny')}</button>
       </div>
 
       <fieldset>
         <legend>التخصص*</legend>
         <div class="chips wrap">${Object.entries(SPECIALTIES).map(([k, s]) => `
-          <label class="chip check"><input type="checkbox" name="spec" value="${k}">${icon(s.icon)} ${s.label}</label>`).join('')}</div>
+          <label class="chip check"><input type="checkbox" name="spec" value="${k}" ${v.specialties?.includes(k) ? 'checked' : ''}>${icon(s.icon)} ${s.label}</label>`).join('')}</div>
       </fieldset>
 
-      <label>مواعيد العمل<input name="hours" placeholder="مثلاً: السبت–الخميس ١٠ص–١٠م"></label>
-      <label>نبذة عن الورشة<textarea name="about" rows="2"></textarea></label>
+      <label>مواعيد العمل<input name="hours" value="${esc(v.hours)}" placeholder="مثلاً: السبت–الخميس ١٠ص–١٠م"></label>
+      <label>نبذة عن الورشة<textarea name="about" rows="2">${esc(v.about)}</textarea></label>
 
       <fieldset>
         <legend>قايمة الأسعار (المصنعية)</legend>
@@ -473,17 +481,18 @@ export function viewJoin() {
         <button type="button" class="btn small" id="add-price">${icon('plus')} خدمة</button>
       </fieldset>
 
-      <label class="agree"><input type="checkbox" name="agree" required> موافق أدّي ضمان ${num(WARRANTY.days)} يوم على ${WARRANTY.scope} للشغل اللي بيتسجّل من التطبيق، وعلى شروط باسبور.</label>
-      <button class="btn primary" type="submit">ابعت طلب الانضمام</button>
+      <label class="agree"><input type="checkbox" name="agree" required ${existing ? 'checked' : ''}> موافق أدّي ضمان ${num(WARRANTY.days)} يوم على ${WARRANTY.scope} للشغل اللي بيتسجّل من التطبيق، وعلى شروط باسبور.</label>
+      <button class="btn primary" type="submit">${existing ? 'حفظ التعديلات' : 'ابعت طلب الانضمام'}</button>
       <p class="muted small">في النسخة دي الطلب بيتحفظ على الموبايل ده بس عشان تشوف شكل صفحتك. لما السيرفر يشتغل، الطلب هيروح لفريق المراجعة.</p>
     </form>`;
 
   const rows = document.getElementById('price-rows');
-  const addRow = () => rows.insertAdjacentHTML('beforeend', `<div class="part-row">
-    <input name="svc" placeholder="الخدمة"><input name="price" type="number" min="0" inputmode="numeric" placeholder="السعر" class="price-in">
+  const addRow = (s = {}) => rows.insertAdjacentHTML('beforeend', `<div class="part-row">
+    <input name="svc" placeholder="الخدمة" value="${esc(s.name)}"><input name="price" type="number" min="0" inputmode="numeric" placeholder="السعر" class="price-in" value="${esc(s.price)}">
     <button type="button" class="icon-btn" data-remove aria-label="شيل">${icon('x')}</button></div>`);
-  addRow(); addRow();
-  document.getElementById('add-price').onclick = addRow;
+  if (existing?.services?.length) existing.services.forEach(addRow);
+  else { addRow(); addRow(); }
+  document.getElementById('add-price').onclick = () => addRow();
   rows.onclick = e => { if (e.target.closest('[data-remove]')) e.target.closest('.part-row').remove(); };
 
   document.getElementById('join-loc').onclick = async () => {
@@ -504,14 +513,21 @@ export function viewJoin() {
     const prices = fd.getAll('price');
     const services = fd.getAll('svc').map((name, i) => ({ name: name.trim(), price: Number(prices[i]) || 0 }))
       .filter(s => s.name && s.price > 0);
-    const shop = {
-      id: 'local-' + uid(), name: fd.get('name').trim(), owner: fd.get('owner').trim(), phone: fd.get('phone').trim(),
-      area: loc.name, lat: loc.lat, lng: loc.lng, specialties, brands: [], hours: fd.get('hours').trim(),
-      about: fd.get('about').trim(), services, warrantyDays: WARRANTY.days, pending: true, createdAt: today(),
+    const data = {
+      name: fd.get('name').trim(), owner: fd.get('owner').trim(), phone: fd.get('phone').trim(),
+      area: loc.name, lat: loc.lat, lng: loc.lng, specialties, hours: fd.get('hours').trim(),
+      about: fd.get('about').trim(), services,
     };
+    if (existing) {
+      Object.assign(existing, data);
+      persist();
+      toast('صفحتك اتحدّثت');
+      return go('biz/' + existing.id);
+    }
+    const shop = { id: 'local-' + uid(), brands: [], warrantyDays: WARRANTY.days, pending: true, createdAt: today(), ...data };
     state.market.listings.push(shop);
     persist();
-    toast('طلبك اتسجّل! دي شكل صفحة ورشتك');
-    go('shop/' + shop.id);
+    toast('طلبك اتسجّل! ده الداشبورد بتاع ورشتك');
+    go('biz/' + shop.id);
   };
 }

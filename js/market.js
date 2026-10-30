@@ -83,3 +83,58 @@ export const DEMO_WORKSHOPS = [
       { name: 'شحن فريون', price: 400 },
     ] }),
 ];
+
+// Platform commission used by the dashboards. A placeholder for the demo — the real rate is a business decision.
+export const PLATFORM_FEE_RATE = 0.10;
+
+export const PART_CATEGORIES = {
+  oil:        { label: 'زيوت وفلاتر',     icon: 'droplet' },
+  brakes:     { label: 'فرامل',           icon: 'disc' },
+  electric:   { label: 'كهرباء وبطاريات',  icon: 'battery-medium' },
+  suspension: { label: 'عفشة',            icon: 'cog' },
+  engine:     { label: 'موتور',           icon: 'gauge' },
+  ac:         { label: 'تكييف',           icon: 'snowflake' },
+  tires:      { label: 'كاوتش',           icon: 'circle-dot' },
+  body:       { label: 'صاج وفوانيس',      icon: 'car-front' },
+  other:      { label: 'أخرى',            icon: 'package' },
+};
+
+export const ORDER_STATUSES = {
+  new:       { label: 'جديد',         tone: 'soon' },
+  confirmed: { label: 'اتأكد',        tone: 'unknown' },
+  ready:     { label: 'جاهز/اتشحن',   tone: 'unknown' },
+  delivered: { label: 'اتسلّم',       tone: 'ok' },
+  cancelled: { label: 'ملغي',         tone: 'overdue' },
+};
+
+const store = (o) => ({ demo: true, ...o, catalog: o.catalog.map((p, i) => ({ id: `${o.id}-p${i + 1}`, stock: 10, fits: [], ...p })) });
+
+export const DEMO_STORES = [
+  store({ id: 'store-demo-1', name: 'محل قطع غيار تجريبي ١', area: 'مدينة نصر', lat: 30.0590, lng: 31.3350,
+    categories: ['oil', 'brakes', 'electric'], hours: 'السبت–الخميس ١٠ص–١٠م', delivery: true,
+    about: 'محل نموذجي لعرض شكل الكتالوج جوه التطبيق.',
+    catalog: [
+      { name: 'فلتر زيت', brand: 'Denso', category: 'oil', condition: 'oem', price: 180, fits: ['Toyota'] },
+      { name: 'زيت موتور 5W-30 (٤ لتر)', brand: 'Mobil', category: 'oil', condition: 'original', price: 1450 },
+      { name: 'تيل فرامل أمامي', brand: 'Brembo', category: 'brakes', condition: 'aftermarket', price: 950, fits: ['Toyota Corolla', 'Hyundai Elantra'] },
+      { name: 'بطارية ٧٠ أمبير', brand: 'Varta', category: 'electric', condition: 'original', price: 4200, stock: 3 },
+      { name: 'فلتر هوا', brand: 'Mann', category: 'oil', condition: 'aftermarket', price: 260, fits: ['Hyundai', 'Kia'] },
+    ] }),
+  store({ id: 'store-demo-2', name: 'محل قطع غيار تجريبي ٢', area: 'مصر الجديدة', lat: 30.0920, lng: 31.3250,
+    categories: ['suspension', 'engine', 'ac'], hours: 'يومياً ١١ص–١١م', delivery: false,
+    about: 'مثال لمحل متخصص في العفشة والموتور.',
+    catalog: [
+      { name: 'مساعد أمامي (الزوج)', brand: 'KYB', category: 'suspension', condition: 'aftermarket', price: 3800, fits: ['Hyundai Accent', 'Kia Rio'] },
+      { name: 'طقم سير كاتينة', brand: 'Gates', category: 'engine', condition: 'aftermarket', price: 2600, fits: ['Chevrolet Optra', 'Chevrolet Lanos'] },
+      { name: 'بوجيهات (٤)', brand: 'NGK', category: 'engine', condition: 'oem', price: 720 },
+      { name: 'فلتر تكييف', brand: 'Bosch', category: 'ac', condition: 'aftermarket', price: 210 },
+    ] }),
+  store({ id: 'store-demo-3', name: 'محل قطع غيار تجريبي ٣', area: 'سموحة', lat: 31.2140, lng: 29.9560,
+    categories: ['body', 'tires', 'other'], hours: 'السبت–الخميس ١٠ص–٩م', delivery: true,
+    about: 'مثال لمحل صاج وكاوتش في إسكندرية.',
+    catalog: [
+      { name: 'فانوس أمامي يمين', brand: 'Depo', category: 'body', condition: 'aftermarket', price: 2900, fits: ['Toyota Corolla'] },
+      { name: 'كاوتش 195/65 R15', brand: 'Bridgestone', category: 'tires', condition: 'original', price: 3300 },
+      { name: 'مساحات (الزوج)', brand: 'Bosch', category: 'other', condition: 'aftermarket', price: 350 },
+    ] }),
+];

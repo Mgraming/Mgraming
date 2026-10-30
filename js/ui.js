@@ -5,7 +5,14 @@ import { icon } from './icons.js';
 
 export const state = load();
 state.workshops ||= [];
-state.market ||= { listings: [], chats: {}, reviews: {} };
+state.market ||= {};
+state.market.listings ||= [];
+state.market.chats ||= {};
+state.market.reviews ||= {};
+state.market.jobs ||= {};
+state.market.stores ||= [];
+state.market.orders ||= [];
+state.cart ||= [];
 state.location ||= null;
 state.radiusKm ??= 10;
 
@@ -128,3 +135,42 @@ export function download(filename, text) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
+
+const MONTH_FMT = new Intl.DateTimeFormat('ar-EG', { month: 'short', timeZone: 'UTC' });
+export const monthLabel = ym => MONTH_FMT.format(new Date(ym + '-15T00:00:00Z'));
+
+// Monthly bars: `main` as the full bar, optional `inner` (e.g. profit) drawn inside it.
+export function barChart(series, { main, inner, mainLabel, innerLabel }) {
+  const W = 320, H = 150, top = 18, bottom = 24, gap = 10;
+  const max = Math.max(1, ...series.map(r => r[main] || 0));
+  const bw = (W - gap * (series.length + 1)) / series.length;
+  const y = v => top + (H - top - bottom) * (1 - v / max);
+  const bars = series.map((r, i) => {
+    const x = W - gap - (i + 1) * (bw + gap) + gap; // right-to-left: oldest on the right
+    const v = r[main] || 0, iv = Math.max(0, r[inner] || 0);
+    const last = i === series.length - 1;
+    return `<g>
+      <rect x="${x}" y="${y(v)}" width="${bw}" height="${H - bottom - y(v)}" rx="5" class="bar ${last ? 'last' : ''}"/>
+      ${inner ? `<rect x="${x + bw * 0.2}" y="${y(Math.min(iv, v))}" width="${bw * 0.6}" height="${H - bottom - y(Math.min(iv, v))}" rx="3" class="bar-inner"/>` : ''}
+      ${v ? `<text x="${x + bw / 2}" y="${y(v) - 5}" class="bar-val">${compact(v)}</text>` : ''}
+      <text x="${x + bw / 2}" y="${H - 6}" class="bar-lbl">${monthLabel(r.month)}</text>
+    </g>`;
+  }).join('');
+  return `<figure class="chart">
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(mainLabel)} آخر ${num(series.length)} شهور">
+      <line x1="0" x2="${W}" y1="${H - bottom}" y2="${H - bottom}" class="axis"/>${bars}
+    </svg>
+    <figcaption><span class="key main"></span>${esc(mainLabel)}${inner ? ` <span class="key inner"></span>${esc(innerLabel)}` : ''}</figcaption>
+  </figure>`;
+}
+
+function compact(v) {
+  return v >= 1000 ? `${Number((v / 1000).toFixed(v >= 10000 ? 0 : 1)).toLocaleString('ar-EG')}ك` : num(v);
+}
+
+export const PERIODS = [
+  { id: 'month', label: 'الشهر ده' },
+  { id: 'quarter', label: '٣ شهور' },
+  { id: 'year', label: 'السنة دي' },
+  { id: 'all', label: 'الكل' },
+];

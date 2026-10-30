@@ -153,3 +153,63 @@ test('ratingSummary and warranty window', () => {
   assert.equal(warrantyInfo({ warranty: w }, '2026-11-01').active, false);
   assert.equal(warrantyInfo({}, '2026-11-01'), null);
 });
+
+import { jobFinancials, periodStats, periodStart, lastMonths, parseCsv, parseCatalogCsv, productFits, cartTotal } from '../js/logic.js';
+
+test('jobFinancials: labour + parts margin - platform fee', () => {
+  const f = jobFinancials({ labor: 500, partsPrice: 1000, partsCost: 800 }, 0.1);
+  assert.deepEqual([f.revenue, f.partsProfit, f.fee, f.profit], [1500, 200, 150, 550]);
+  assert.equal(jobFinancials({ labor: 200 }).profit, 200);
+});
+
+test('periodStart and lastMonths', () => {
+  assert.equal(periodStart('month', '2026-10-30'), '2026-10-01');
+  assert.equal(periodStart('quarter', '2026-10-30'), '2026-08-01');
+  assert.equal(periodStart('year', '2026-10-30'), '2026-01-01');
+  assert.equal(periodStart('all', '2026-10-30'), null);
+  assert.deepEqual(lastMonths('2026-02-15', 3), ['2025-12', '2026-01', '2026-02']);
+});
+
+test('periodStats totals the period and builds a monthly series', () => {
+  const items = [
+    { date: '2026-10-02', amount: 100 }, { date: '2026-10-20', amount: 50 },
+    { date: '2026-09-10', amount: 70 }, { date: '2025-01-01', amount: 999 },
+  ];
+  const s = periodStats(items, { from: '2026-10-01', today: '2026-10-30', months: 2, value: it => ({ amount: it.amount }) });
+  assert.equal(s.totals.count, 2);
+  assert.equal(s.totals.amount, 150);
+  assert.deepEqual(s.series, [{ month: '2026-09', amount: 70 }, { month: '2026-10', amount: 150 }]);
+});
+
+test('parseCsv handles quotes, escaped quotes, CRLF and semicolons', () => {
+  assert.deepEqual(parseCsv('a,b\r\n"x, y","say ""hi"""\n'), [['a', 'b'], ['x, y', 'say "hi"']]);
+  assert.deepEqual(parseCsv('a;b\n1;2'), [['a', 'b'], ['1', '2']]);
+});
+
+test('parseCatalogCsv maps Arabic headers, normalises fields and reports bad rows', () => {
+  const csv = '﻿الاسم,الماركة,العربيات,السعر,الكمية,الحالة,القسم\n' +
+    'فلتر زيت,Denso,"تويوتا Corolla|Hyundai",180,25,أصلي,oil\n' +
+    'تيل فرامل,,,"1,200",,بديل,brakes\n' +
+    ',,,50,,,\n';
+  const { items, errors } = parseCatalogCsv(csv);
+  assert.equal(items.length, 2);
+  assert.deepEqual(items[0].fits, ['تويوتا Corolla', 'Hyundai']);
+  assert.equal(items[0].condition, 'original');
+  assert.equal(items[0].stock, 25);
+  assert.equal(items[1].price, 1200);
+  assert.equal(items[1].stock, null);
+  assert.equal(items[1].condition, 'aftermarket');
+  assert.equal(errors.length, 1);
+  assert.match(parseCatalogCsv('foo,bar\n1,2').errors[0], /الاسم/);
+});
+
+test('productFits matches make or make+model in Arabic or English', () => {
+  const car = { make: 'تويوتا', model: 'Corolla' };
+  assert.ok(productFits({ fits: [] }, car));
+  assert.ok(productFits({ fits: ['Toyota'] }, car));
+  assert.ok(productFits({ fits: ['تويوتا Corolla'] }, car));
+  assert.ok(productFits({ fits: ['toyota corolla'] }, car));
+  assert.ok(!productFits({ fits: ['Toyota Yaris'] }, car));
+  assert.ok(!productFits({ fits: ['Hyundai'] }, car));
+  assert.equal(cartTotal([{ price: 100, qty: 2 }, { price: 50, qty: 1 }]), 250);
+});

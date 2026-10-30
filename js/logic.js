@@ -1,5 +1,6 @@
 // Pure domain logic (no DOM, no storage) so it can be unit-tested in Node.
 import { SERVICE_TYPES, SOURCES } from './data.js';
+import { findBrand } from './cars.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 const SOON_KM = 1000;
@@ -252,4 +253,141 @@ export function warrantyInfo(record, today) {
 
 export function newWarranty(workshopId, date, days) {
   return { workshopId, from: date, until: formatDate(parseDate(date) + days * DAY), days, claims: [] };
+}
+
+// ---------- business dashboards ----------
+
+// Money for one workshop job. Labour is pure income; parts earn their margin; the platform fee is on the total bill.
+export function jobFinancials(job, feeRate = 0) {
+  const labor = Number(job.labor) || 0;
+  const partsPrice = Number(job.partsPrice) || 0;
+  const partsCost = Number(job.partsCost) || 0;
+  const revenue = labor + partsPrice;
+  const fee = Math.round(revenue * feeRate);
+  return { revenue, labor, partsPrice, partsCost, partsProfit: partsPrice - partsCost, fee, profit: revenue - partsCost - fee };
+}
+
+const monthKey = date => date.slice(0, 7);
+
+export function lastMonths(today, n) {
+  const keys = [];
+  for (let i = n - 1; i >= 0; i--) keys.push(addMonths(today.slice(0, 8) + '01', -i).slice(0, 7));
+  return keys;
+}
+
+// Totals for items dated on/after `from` (YYYY-MM-DD, or null for all time), plus a per-month series.
+export function periodStats(items, { from = null, today, months = 6, value }) {
+  const inPeriod = items.filter(it => !from || it.date >= from);
+  const totals = { count: inPeriod.length };
+  for (const it of inPeriod) {
+    for (const [k, v] of Object.entries(value(it))) totals[k] = (totals[k] || 0) + v;
+  }
+  const series = lastMonths(today, months).map(m => {
+    const row = { month: m };
+    for (const it of items.filter(x => monthKey(x.date) === m)) {
+      for (const [k, v] of Object.entries(value(it))) row[k] = (row[k] || 0) + v;
+    }
+    return row;
+  });
+  return { totals, series };
+}
+
+export function periodStart(period, today) {
+  if (period === 'month') return today.slice(0, 8) + '01';
+  if (period === 'quarter') return addMonths(today.slice(0, 8) + '01', -2);
+  if (period === 'year') return today.slice(0, 5) + '01-01';
+  return null;
+}
+
+// ---------- parts catalogue ----------
+
+// Minimal RFC-4180 CSV parser (quotes, escaped quotes, CRLF, commas or semicolons).
+export function parseCsv(text) {
+  const src = text.replace(/^﻿/, '');
+  const firstLine = src.split(/\r?\n/, 1)[0];
+  const sep = (firstLine.match(/;/g) || []).length > (firstLine.match(/,/g) || []).length ? ';' : ',';
+  const rows = [];
+  let row = [], field = '', quoted = false;
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (quoted) {
+      if (c === '"' && src[i + 1] === '"') { field += '"'; i++; }
+      else if (c === '"') quoted = false;
+      else field += c;
+    } else if (c === '"') quoted = true;
+    else if (c === sep) { row.push(field); field = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && src[i + 1] === '\n') i++;
+      row.push(field); rows.push(row); row = []; field = '';
+    } else field += c;
+  }
+  if (field || row.length) { row.push(field); rows.push(row); }
+  return rows.filter(r => r.some(f => f.trim()));
+}
+
+const CATALOG_COLUMNS = {
+  name: ['الاسم', 'اسم القطعة', 'name'],
+  brand: ['الماركة', 'ماركة القطعة', 'brand'],
+  fits: ['العربيات', 'تناسب', 'fits', 'compatible'],
+  price: ['السعر', 'price'],
+  stock: ['الكمية', 'المخزون', 'stock', 'qty'],
+  condition: ['الحالة', 'condition'],
+  category: ['القسم', 'category'],
+  sku: ['الكود', 'sku', 'code'],
+};
+
+const CONDITION_ALIASES = {
+  original: ['أصلي', 'اصلي', 'original', 'وكالة'],
+  oem: ['oem', 'مصنع أصلي'],
+  aftermarket: ['بديل', 'تجاري', 'aftermarket'],
+  used: ['مستعمل', 'used'],
+};
+
+const normalizeCondition = v => {
+  const s = (v || '').trim().toLowerCase();
+  return Object.entries(CONDITION_ALIASES).find(([, alts]) => alts.some(a => a.toLowerCase() === s))?.[0] || 'aftermarket';
+};
+
+// Turns an uploaded catalogue sheet into products. Unknown columns are ignored; bad rows are reported, not dropped silently.
+export function parseCatalogCsv(text) {
+  const rows = parseCsv(text);
+  if (!rows.length) return { items: [], errors: ['الملف فاضي'] };
+  const header = rows[0].map(h => h.trim().toLowerCase());
+  const col = {};
+  for (const [key, names] of Object.entries(CATALOG_COLUMNS)) {
+    col[key] = header.findIndex(h => names.some(n => n.toLowerCase() === h));
+  }
+  if (col.name < 0 || col.price < 0) return { items: [], errors: ['لازم يكون في عمود «الاسم» وعمود «السعر»'] };
+
+  const items = [];
+  const errors = [];
+  rows.slice(1).forEach((r, i) => {
+    const get = k => (col[k] >= 0 ? (r[col[k]] || '').trim() : '');
+    const name = get('name');
+    const price = Number(get('price').replace(/[^\d.]/g, ''));
+    if (!name || !(price > 0)) { errors.push(`سطر ${i + 2}: الاسم أو السعر ناقص`); return; }
+    items.push({
+      name, price, brand: get('brand'), sku: get('sku'), category: get('category') || 'other',
+      stock: get('stock') === '' ? null : Math.max(0, parseInt(get('stock'), 10) || 0),
+      condition: normalizeCondition(get('condition')),
+      fits: get('fits') ? get('fits').split(/[|،,]/).map(s => s.trim()).filter(Boolean) : [],
+    });
+  });
+  return { items, errors };
+}
+
+// A product fits when it lists no cars (universal), the car's make, or "make model" — in Arabic or English.
+export function productFits(product, car) {
+  if (!product.fits?.length || !car) return true;
+  const brand = findBrand(car.make);
+  const makes = [car.make, brand?.ar, brand?.en].filter(Boolean).map(m => m.toLowerCase());
+  const model = (car.model || '').toLowerCase();
+  return product.fits.some(f => {
+    const v = f.toLowerCase().trim();
+    return makes.some(m => v === m || v === `${m} ${model}`);
+  });
+}
+
+export function cartTotal(lines) {
+  return lines.reduce((s, l) => s + l.price * l.qty, 0);
 }
