@@ -4,6 +4,8 @@ import {
   buildReport, encodeReport, formatDate,
 } from './logic.js';
 import { load, save, uid, exportCar, parseImport } from './store.js';
+import { renderReport } from './report-view.js';
+import { expandReport } from './logic.js';
 
 let state = load();
 const view = document.getElementById('view');
@@ -74,6 +76,22 @@ function compressImage(file, maxSide = 900, quality = 0.6) {
     };
     img.onerror = reject;
     img.src = URL.createObjectURL(file);
+  });
+}
+
+// In-page confirmation; native confirm() is blocked in embedded/sandboxed views.
+function ask(message, okLabel = 'تأكيد', danger = true) {
+  return new Promise(resolve => {
+    modal.innerHTML = `<form method="dialog" class="form">
+      <p>${esc(message)}</p>
+      <div class="row2">
+        <button class="btn" value="cancel">إلغاء</button>
+        <button class="btn ${danger ? 'danger' : 'primary'}" value="ok">${esc(okLabel)}</button>
+      </div>
+    </form>`;
+    modal.onclose = () => { modal.onclose = null; resolve(modal.returnValue === 'ok'); };
+    modal.returnValue = '';
+    modal.showModal();
   });
 }
 
@@ -329,8 +347,8 @@ function viewAdd(car, recordId) {
     go('log');
   };
 
-  if (rec) document.getElementById('del-rec').onclick = () => {
-    if (!confirm('متأكد إنك عايز تمسح السجل ده؟')) return;
+  if (rec) document.getElementById('del-rec').onclick = async () => {
+    if (!await ask('متأكد إنك عايز تمسح السجل ده؟', 'امسح')) return;
     car.records = car.records.filter(x => x.id !== rec.id);
     persist();
     go('log');
@@ -363,8 +381,9 @@ async function viewPassport(car) {
       <div class="actions">
         <button class="btn primary" id="share">📤 شارك التقرير</button>
         <button class="btn" id="copy">🔗 انسخ اللينك</button>
-        <a class="btn" href="${esc(link)}" target="_blank" rel="noopener">👁️ اعرض التقرير</a>
+        <a class="btn" href="#report">👁️ اعرض التقرير</a>
       </div>
+      <input id="link-box" class="link-box" readonly dir="ltr" value="${esc(link)}" hidden>
     </section>
 
     <section class="card">
@@ -379,7 +398,12 @@ async function viewPassport(car) {
   document.getElementById('share-costs').onchange = e => { state.shareCosts = e.target.checked; persist(); viewPassport(car); };
   document.getElementById('copy').onclick = async () => {
     try { await navigator.clipboard.writeText(link); toast('اللينك اتنسخ ✓'); }
-    catch { prompt('انسخ اللينك:', link); }
+    catch {
+      const box = document.getElementById('link-box');
+      box.hidden = false;
+      box.select();
+      toast('النسخ التلقائي مش متاح هنا — انسخ اللينك من الخانة');
+    }
   };
   document.getElementById('share').onclick = async () => {
     const title = `باسبور ${car.make} ${car.model} ${car.year}`;
@@ -391,8 +415,8 @@ async function viewPassport(car) {
   };
   const fileName = `passport-${car.make}-${car.model}-${car.year}.json`.replace(/\s+/g, '_');
   document.getElementById('export').onclick = () => download(fileName, exportCar(car));
-  document.getElementById('transfer').onclick = () => {
-    if (!confirm('هننزّل ملف الباسبور، وبعدها العربية هتتمسح من الموبايل ده. كمّل؟')) return;
+  document.getElementById('transfer').onclick = async () => {
+    if (!await ask('هننزّل ملف الباسبور، وبعدها العربية هتتمسح من الموبايل ده. كمّل؟', 'انقل الملكية')) return;
     download(fileName, exportCar(car));
     state.cars = state.cars.filter(c => c.id !== car.id);
     state.activeCarId = state.cars[0]?.id || null;
@@ -437,13 +461,20 @@ function viewMore(car) {
   };
   document.getElementById('backup').onclick = () =>
     download(`carpass-backup-${today()}.json`, JSON.stringify(state, null, 2));
-  document.getElementById('delete-car').onclick = () => {
-    if (!confirm(`مسح ${car.make} ${car.model} وكل سجلاتها نهائياً؟`)) return;
+  document.getElementById('delete-car').onclick = async () => {
+    if (!await ask(`مسح ${car.make} ${car.model} وكل سجلاتها نهائياً؟`, 'امسح')) return;
     state.cars = state.cars.filter(c => c.id !== car.id);
     state.activeCarId = state.cars[0]?.id || null;
     persist();
     go('home');
   };
+}
+
+// What the buyer sees, rendered in-app from the same payload the share link carries.
+function viewReport(car) {
+  const report = buildReport(car, { includeCosts: state.shareCosts !== false, today: today() });
+  view.innerHTML = '<div class="card-head"><h1>معاينة التقرير</h1><a href="#passport">رجوع</a></div><div id="report-body"></div>';
+  renderReport(document.getElementById('report-body'), expandReport(JSON.parse(JSON.stringify(report))));
 }
 
 function viewReminders(car) {
@@ -482,7 +513,8 @@ function render() {
   const [route, arg] = (location.hash.slice(1) || 'home').split('/');
   const car = activeCar();
   renderCarSwitch();
-  document.querySelectorAll('.tabbar button').forEach(b => b.classList.toggle('active', b.dataset.tab === route));
+  const tab = route === 'report' ? 'passport' : route;
+  document.querySelectorAll('.tabbar button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   document.querySelector('.tabbar').hidden = !car;
   window.scrollTo(0, 0);
 
@@ -498,6 +530,7 @@ function render() {
     passport: () => viewPassport(car),
     more: () => viewMore(car),
     reminders: () => viewReminders(car),
+    report: () => viewReport(car),
     lights: () => viewLights(),
     car: () => { view.innerHTML = '<h1>بيانات العربية</h1>' + carForm(car); bindCarForm(car); },
   }[route] || (() => viewHome(car)))();
@@ -507,4 +540,4 @@ document.querySelectorAll('.tabbar button').forEach(b => b.onclick = () => go(b.
 window.addEventListener('hashchange', render);
 render();
 
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+try { navigator.serviceWorker?.register('sw.js').catch(() => {}); } catch { /* sandboxed view */ }
