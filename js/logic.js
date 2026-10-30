@@ -189,3 +189,29 @@ export async function decodeReport(code) {
   else if (code[0] !== 'j') throw new Error('unknown report format');
   return JSON.parse(new TextDecoder().decode(bytes));
 }
+
+const normName = s => (s || '').trim().replace(/\s+/g, ' ');
+
+// Merge saved workshops with visit stats derived from every car's service records (matched by name).
+export function workshopDirectory(cars, saved = []) {
+  const byName = new Map();
+  const entry = name => {
+    const key = normName(name).toLowerCase();
+    if (!byName.has(key)) byName.set(key, { name: normName(name), visits: 0, spent: 0, lastDate: null, types: new Set() });
+    return byName.get(key);
+  };
+  for (const w of saved) Object.assign(entry(w.name), { ...w, name: normName(w.name) });
+  for (const car of cars) {
+    for (const r of car.records || []) {
+      if (!normName(r.workshop) || r.type === 'odometer') continue;
+      const e = entry(r.workshop);
+      e.visits++;
+      e.spent += Number(r.cost) || 0;
+      e.types.add(r.type);
+      if (!e.lastDate || r.date > e.lastDate) e.lastDate = r.date;
+    }
+  }
+  return [...byName.values()]
+    .map(e => ({ ...e, types: [...e.types] }))
+    .sort((a, b) => (b.rating || 0) - (a.rating || 0) || b.visits - a.visits || a.name.localeCompare(b.name, 'ar'));
+}

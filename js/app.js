@@ -5,9 +5,11 @@ import {
 } from './logic.js';
 import { load, save, uid, exportCar, parseImport } from './store.js';
 import { renderReport } from './report-view.js';
-import { expandReport } from './logic.js';
+import { expandReport, workshopDirectory } from './logic.js';
+import { BRANDS, findBrand, yearOptions, WORKSHOP_CATEGORIES, mapsSearchUrl } from './cars.js';
 
 let state = load();
+state.workshops ||= [];
 const view = document.getElementById('view');
 const modal = document.getElementById('modal');
 
@@ -105,23 +107,88 @@ function download(filename, text) {
 
 // ---------- views ----------
 
+// Full-screen searchable chooser. Resolves with the chosen value, a typed custom value, or null.
+function choose({ title, items, columns = 2, customLabel }) {
+  return new Promise(resolve => {
+    modal.classList.add('sheet');
+    modal.innerHTML = `<form method="dialog" class="picker">
+      <div class="picker-head">
+        <h2>${esc(title)}</h2>
+        <button class="icon-btn" value="cancel" aria-label="قفل">✕</button>
+      </div>
+      <input type="search" id="picker-search" placeholder="دوّر…" autocomplete="off">
+      <div class="picker-grid cols-${columns}" id="picker-grid">
+        ${items.map((it, i) => `<button type="button" class="pick ${it.selected ? 'selected' : ''}" data-i="${i}" data-q="${esc((it.label + ' ' + (it.sub || '')).toLowerCase())}">
+          <b>${esc(it.label)}</b>${it.sub ? `<small>${esc(it.sub)}</small>` : ''}</button>`).join('')}
+      </div>
+      ${customLabel ? `<div class="picker-custom">
+        <input id="picker-custom" placeholder="${esc(customLabel)}">
+        <button type="button" class="btn small" id="picker-custom-ok">تمام</button>
+      </div>` : ''}
+    </form>`;
+    let result = null;
+    const finish = v => { result = v; modal.close(); };
+    modal.onclose = () => { modal.onclose = null; modal.classList.remove('sheet'); resolve(result); };
+    const search = modal.querySelector('#picker-search');
+    search.oninput = () => {
+      const q = search.value.trim().toLowerCase();
+      modal.querySelectorAll('.pick').forEach(b => { b.hidden = q && !b.dataset.q.includes(q); });
+    };
+    modal.querySelector('#picker-grid').onclick = e => {
+      const btn = e.target.closest('.pick');
+      if (btn) finish(items[btn.dataset.i].value);
+    };
+    if (customLabel) modal.querySelector('#picker-custom-ok').onclick = () => {
+      const v = modal.querySelector('#picker-custom').value.trim();
+      if (v) finish(v);
+    };
+    modal.showModal();
+    modal.querySelector('.picker-grid').scrollTop = 0;
+    modal.querySelector('.selected')?.scrollIntoView({ block: 'center' });
+  });
+}
+
+const pickBrand = current => choose({
+  title: 'اختار ماركة عربيتك', columns: 2, customLabel: 'ماركة مش موجودة؟ اكتبها',
+  items: BRANDS.map(b => ({ label: b.ar, sub: b.en, value: b.ar, selected: b.ar === current })),
+});
+
+const pickModel = (make, current) => {
+  const brand = findBrand(make);
+  return choose({
+    title: `موديلات ${make}`, columns: 2, customLabel: 'موديلك مش موجود؟ اكتبه',
+    items: (brand?.models || []).map(m => ({ label: m, value: m, selected: m === current })),
+  });
+};
+
+const pickYear = current => choose({
+  title: 'سنة الصنع', columns: 4,
+  items: yearOptions().map(y => ({ label: String(y), value: y, selected: y === Number(current) })),
+});
+
 function carForm(car = {}) {
+  const field = (name, label, value, placeholder) => `
+    <div class="field">
+      <span class="field-label">${label}*</span>
+      <button type="button" class="select-btn ${value ? '' : 'empty'}" data-pick="${name}">
+        <span>${esc(value || placeholder)}</span><span aria-hidden="true">▾</span>
+      </button>
+      <input type="hidden" name="${name}" value="${esc(value)}">
+    </div>`;
   return `<form id="car-form" class="card form">
+    ${field('make', 'الماركة', car.make, 'اختار الماركة')}
     <div class="row2">
-      <label>الماركة*<input name="make" required value="${esc(car.make)}" placeholder="مثلاً: تويوتا"></label>
-      <label>الموديل*<input name="model" required value="${esc(car.model)}" placeholder="كورولا"></label>
+      ${field('model', 'الموديل', car.model, 'اختار الموديل')}
+      ${field('year', 'سنة الصنع', car.year, 'اختار السنة')}
     </div>
     <div class="row2">
-      <label>سنة الصنع*<input name="year" type="number" min="1950" max="2100" required value="${esc(car.year)}"></label>
       <label>اللون<input name="color" value="${esc(car.color)}"></label>
-    </div>
-    <div class="row2">
       <label>رقم اللوحة<input name="plate" value="${esc(car.plate)}"></label>
-      <label>رقم الشاسيه (VIN)<input name="vin" value="${esc(car.vin)}" dir="ltr"></label>
     </div>
+    <label>رقم الشاسيه (VIN)<input name="vin" value="${esc(car.vin)}" dir="ltr"></label>
     <div class="row2">
       <label>تاريخ الشراء<input name="purchaseDate" type="date" value="${esc(car.purchaseDate || today())}"></label>
-      <label>العداد وقت الشراء (كم)<input name="purchaseKm" type="number" min="0" value="${esc(car.purchaseKm ?? 0)}"></label>
+      <label>العداد وقت الشراء (كم)<input name="purchaseKm" type="number" min="0" inputmode="numeric" value="${esc(car.purchaseKm ?? 0)}"></label>
     </div>
     <div class="row2">
       <label>انتهاء الرخصة<input name="licenseExpiry" type="date" value="${esc(car.licenseExpiry)}"></label>
@@ -132,9 +199,44 @@ function carForm(car = {}) {
 }
 
 function bindCarForm(existing) {
-  document.getElementById('car-form').onsubmit = e => {
+  const form = document.getElementById('car-form');
+  const get = name => form.elements[name].value;
+  const set = (name, value) => {
+    form.elements[name].value = value ?? '';
+    const btn = form.querySelector(`[data-pick="${name}"]`);
+    const placeholder = { make: 'اختار الماركة', model: 'اختار الموديل', year: 'اختار السنة' }[name];
+    btn.firstElementChild.textContent = value || placeholder;
+    btn.classList.toggle('empty', !value);
+  };
+
+  // Brand → model → year, each step opening the next so a new owner taps three times.
+  const steps = {
+    make: async () => {
+      const v = await pickBrand(get('make'));
+      if (v == null) return;
+      if (v !== get('make')) set('model', '');
+      set('make', v);
+      if (!get('model')) await steps.model();
+    },
+    model: async () => {
+      if (!get('make')) return steps.make();
+      const v = await pickModel(get('make'), get('model'));
+      if (v == null) return;
+      set('model', v);
+      if (!get('year')) await steps.year();
+    },
+    year: async () => {
+      const v = await pickYear(get('year'));
+      if (v != null) set('year', v);
+    },
+  };
+  form.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => steps[b.dataset.pick]());
+
+  form.onsubmit = e => {
     e.preventDefault();
-    const f = Object.fromEntries(new FormData(e.target));
+    const missing = ['make', 'model', 'year'].find(n => !get(n));
+    if (missing) { toast('اختار الماركة والموديل وسنة الصنع الأول'); steps[missing](); return; }
+    const f = Object.fromEntries(new FormData(form));
     const data = { ...f, year: Number(f.year), purchaseKm: Number(f.purchaseKm) || 0 };
     if (existing) Object.assign(existing, data);
     else {
@@ -188,6 +290,7 @@ function viewHome(car) {
       ${urgent.length
         ? `<ul class="list">${urgent.slice(0, 4).map(reminderItem).join('')}</ul>`
         : '<p class="muted">كله تمام ✅ مفيش صيانة متأخرة أو قرّبت.</p>'}
+      ${urgent.length ? '<a class="btn small find-ws" href="#workshops">🔧 دوّر على ورشة أو مركز صيانة</a>' : ''}
     </section>
 
     <section class="stats">
@@ -294,7 +397,8 @@ function viewAdd(car, recordId) {
       </div>
       <div class="row2">
         <label>التكلفة (ج.م)<input name="cost" type="number" min="0" value="${esc(r.cost ?? '')}"></label>
-        <label>الورشة / المركز<input name="workshop" value="${esc(r.workshop)}"></label>
+        <label>الورشة / المركز<input name="workshop" list="ws-list" value="${esc(r.workshop)}"></label>
+        <datalist id="ws-list">${workshopDirectory(state.cars, state.workshops).map(w => `<option value="${esc(w.name)}">`).join('')}</datalist>
       </div>
       <fieldset>
         <legend>قطع الغيار</legend>
@@ -470,6 +574,87 @@ function viewMore(car) {
   };
 }
 
+const stars = n => '★'.repeat(n || 0) + '☆'.repeat(5 - (n || 0));
+
+function viewWorkshops(car) {
+  const brand = car.make;
+  const dir = workshopDirectory(state.cars, state.workshops);
+  view.innerHTML = `
+    <h1>الورش ومراكز الصيانة</h1>
+    <section class="card">
+      <h2>دوّر قريب منك</h2>
+      <div class="ws-grid">
+        ${WORKSHOP_CATEGORIES.map(c => `<a class="ws-tile" href="${esc(mapsSearchUrl(c.query(brand)))}" target="_blank" rel="noopener">
+          <span class="ico">${c.icon}</span><span>${esc(c.label)}</span></a>`).join('')}
+      </div>
+      <p class="muted small">النتايج بتفتح على خرائط جوجل للمكان اللي إنت فيه. قارن التقييمات واسأل على السعر قبل ما تروح، وبعد الصيانة سجّل الورشة هنا وقيّمها.</p>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>ورشي</h2><button class="btn small" id="add-ws">＋ ضيف ورشة</button></div>
+      ${dir.length ? `<ul class="list">${dir.map((w, i) => `
+        <li class="ws-item" data-i="${i}">
+          <span class="ico">🏪</span>
+          <div class="grow">
+            <b>${esc(w.name)}</b>
+            ${w.rating ? `<small class="stars" aria-label="${w.rating} من ٥">${stars(w.rating)}</small>` : ''}
+            <small>${w.visits ? `${num(w.visits)} زيارة • ${money(w.spent)} • آخر مرة ${esc(w.lastDate)}` : 'لسه مفيش زيارات مسجّلة'}</small>
+            ${w.area ? `<small>📍 ${esc(w.area)}</small>` : ''}
+            ${w.phone ? `<small>📞 <span class="selectable" dir="ltr">${esc(w.phone)}</span></small>` : ''}
+          </div>
+          <span class="chev" aria-hidden="true">‹</span>
+        </li>`).join('')}</ul>`
+        : '<p class="muted">الورش اللي بتسجّلها مع الصيانة هتظهر هنا لوحدها، ومعاها عدد الزيارات واللي صرفته عندها.</p>'}
+    </section>`;
+
+  document.getElementById('add-ws').onclick = () => editWorkshop({});
+  view.querySelectorAll('.ws-item').forEach(li => li.onclick = () => editWorkshop(dir[li.dataset.i]));
+}
+
+function editWorkshop(w) {
+  const saved = state.workshops.find(x => x.id && x.id === w.id);
+  modal.innerHTML = `<form method="dialog" class="form" id="ws-form">
+    <h2>${w.name ? esc(w.name) : 'ورشة جديدة'}</h2>
+    <label>الاسم*<input name="name" required value="${esc(w.name)}"></label>
+    <div class="row2">
+      <label>التليفون<input name="phone" type="tel" dir="ltr" value="${esc(w.phone)}"></label>
+      <label>المنطقة<input name="area" value="${esc(w.area)}" placeholder="مثلاً: مدينة نصر"></label>
+    </div>
+    <label>لينك المكان على الخريطة<input name="mapUrl" type="url" dir="ltr" value="${esc(w.mapUrl)}" placeholder="https://maps.app.goo.gl/…"></label>
+    <fieldset class="rating">
+      <legend>تقييمك</legend>
+      ${[5, 4, 3, 2, 1].map(n => `<input type="radio" name="rating" id="rate-${n}" value="${n}" ${Number(w.rating) === n ? 'checked' : ''}><label for="rate-${n}" title="${n}">★</label>`).join('')}
+    </fieldset>
+    <label>ملاحظات<textarea name="notes" rows="2" placeholder="أمين؟ أسعاره؟ بيلتزم بالمعاد؟">${esc(w.notes)}</textarea></label>
+    ${w.phone || w.mapUrl ? `<div class="actions">
+      ${w.phone ? `<a class="btn small" href="tel:${esc(w.phone)}">📞 اتصل</a>` : ''}
+      ${w.mapUrl ? `<a class="btn small" href="${esc(w.mapUrl)}" target="_blank" rel="noopener">🗺️ الخريطة</a>` : ''}
+    </div>` : ''}
+    <div class="row2">
+      <button class="btn" value="cancel" formnovalidate>إلغاء</button>
+      <button class="btn primary" value="ok">حفظ</button>
+    </div>
+    ${saved ? '<button class="btn danger wide" value="delete" formnovalidate>مسح الورشة</button>' : ''}
+  </form>`;
+  modal.returnValue = '';
+  modal.showModal();
+  modal.querySelector('form').onsubmit = e => {
+    const action = e.submitter?.value;
+    if (action === 'delete') {
+      state.workshops = state.workshops.filter(x => x !== saved);
+    } else if (action === 'ok') {
+      const f = Object.fromEntries(new FormData(e.target));
+      const mapUrl = /^https?:\/\//.test(f.mapUrl) ? f.mapUrl.trim() : '';
+      const data = { name: f.name.trim(), phone: f.phone.trim(), area: f.area.trim(), mapUrl,
+        rating: Number(f.rating) || 0, notes: f.notes.trim() };
+      if (saved) Object.assign(saved, data);
+      else state.workshops.push({ id: uid(), ...data });
+    } else return;
+    persist();
+    render();
+  };
+}
+
 // What the buyer sees, rendered in-app from the same payload the share link carries.
 function viewReport(car) {
   const report = buildReport(car, { includeCosts: state.shareCosts !== false, today: today() });
@@ -516,6 +701,7 @@ function render() {
   const tab = route === 'report' ? 'passport' : route;
   document.querySelectorAll('.tabbar button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   document.querySelector('.tabbar').hidden = !car;
+  document.querySelector('.top-more').hidden = !car;
   window.scrollTo(0, 0);
 
   if (!car || route === 'newcar') {
@@ -530,6 +716,7 @@ function render() {
     passport: () => viewPassport(car),
     more: () => viewMore(car),
     reminders: () => viewReminders(car),
+    workshops: () => viewWorkshops(car),
     report: () => viewReport(car),
     lights: () => viewLights(),
     car: () => { view.innerHTML = '<h1>بيانات العربية</h1>' + carForm(car); bindCarForm(car); },

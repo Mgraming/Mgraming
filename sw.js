@@ -1,8 +1,9 @@
 // Offline support: network-first so updates show immediately, cached shell when offline.
-const CACHE = 'carpass-v1';
+const CACHE = 'carpass-v2';
 const SHELL = [
   './', 'index.html', 'report.html', 'css/style.css', 'icon.svg', 'manifest.webmanifest',
-  'js/app.js', 'js/data.js', 'js/logic.js', 'js/store.js', 'js/report.js', 'vendor/qrcode.js',
+  'js/app.js', 'js/cars.js', 'js/data.js', 'js/logic.js', 'js/store.js', 'js/report.js', 'js/report-view.js',
+  'vendor/qrcode.js', 'icons/icon-192.png', 'icons/icon-512.png',
 ];
 
 self.addEventListener('install', e => {

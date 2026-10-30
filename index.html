@@ -7,12 +7,17 @@
   <title>باسبور العربية</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="description" content="باسبور العربية: سجل صيانة عربيتك، تذكيرات، ورش قريبة منك، وتقرير تاريخ العربية لما تيجي تبيعها.">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
   <header class="topbar">
     <div class="brand">📘 باسبور العربية</div>
-    <select id="car-switch" aria-label="اختار العربية"></select>
+    <div class="top-actions">
+      <select id="car-switch" aria-label="اختار العربية"></select>
+      <a href="#more" class="top-more" aria-label="المزيد">☰</a>
+    </div>
   </header>
 
   <main id="view"></main>
@@ -21,8 +26,8 @@
     <button data-tab="home"><span>🏠</span>الرئيسية</button>
     <button data-tab="log"><span>📜</span>السجل</button>
     <button data-tab="add" class="add"><span>＋</span>سجّل</button>
+    <button data-tab="workshops"><span>🔧</span>الورش</button>
     <button data-tab="passport"><span>📘</span>الباسبور</button>
-    <button data-tab="more"><span>☰</span>المزيد</button>
   </nav>
 
   <dialog id="modal"></dialog>

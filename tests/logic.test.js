@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   addMonths, currentKm, odometerAnomalies, reminders, costs, trustScore, mask,
-  buildReport, expandReport, encodeReport, decodeReport,
+  buildReport, expandReport, encodeReport, decodeReport, workshopDirectory,
 } from '../js/logic.js';
 
 const car = () => ({
@@ -82,4 +82,36 @@ test('report round-trips through the share code and hides identifiers', async ()
   assert.equal(back.car.records[0].parts[0].grade, 'original');
   assert.ok(!back.car.plate.includes('ب'));
   assert.equal(back.car.vin.slice(-6), '123456');
+});
+
+test('workshopDirectory merges saved workshops with visit stats by name', () => {
+  const cars = [{ records: [
+    { date: '2025-01-01', type: 'oil', cost: 900, workshop: 'مركز النور' },
+    { date: '2025-06-01', type: 'brakes', cost: 1100, workshop: ' مركز  النور ' },
+    { date: '2025-07-01', type: 'odometer', workshop: 'مركز النور' },
+    { date: '2025-03-01', type: 'repair', cost: 500, workshop: 'ورشة الأمل' },
+  ] }];
+  const dir = workshopDirectory(cars, [{ id: 'w1', name: 'ورشة الأمل', rating: 5, phone: '0100' }]);
+  assert.equal(dir[0].name, 'ورشة الأمل'); // rated first
+  assert.equal(dir[0].phone, '0100');
+  const noor = dir.find(w => w.name === 'مركز النور');
+  assert.equal(noor.visits, 2);
+  assert.equal(noor.spent, 2000);
+  assert.equal(noor.lastDate, '2025-06-01');
+});
+
+import { BRANDS, findBrand, yearOptions, mapsSearchUrl } from '../js/cars.js';
+
+test('car catalogue: unique brands, non-empty unique models, year range', () => {
+  assert.equal(new Set(BRANDS.map(b => b.id)).size, BRANDS.length);
+  for (const b of BRANDS) {
+    assert.ok(b.models.length > 0, b.id);
+    assert.equal(new Set(b.models).size, b.models.length, b.id);
+  }
+  assert.equal(findBrand('Toyota').ar, 'تويوتا');
+  assert.equal(findBrand('تويوتا').en, 'Toyota');
+  const years = yearOptions(2026);
+  assert.equal(years[0], 2027);
+  assert.equal(years.at(-1), 1980);
+  assert.match(mapsSearchUrl('ورشة'), /^https:\/\/www\.google\.com\/maps\/search\/\?api=1&query=/);
 });
