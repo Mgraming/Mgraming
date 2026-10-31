@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   addMonths, currentKm, odometerAnomalies, reminders, costs, trustScore, mask,
-  buildReport, expandReport, encodeReport, decodeReport, workshopDirectory,
+  buildReport, expandReport, encodeReport, decodeReport, workshopDirectory, estimateKm,
 } from '../js/logic.js';
 
 const car = () => ({
@@ -56,15 +56,35 @@ test('costs aggregate by year and per km', () => {
   assert.equal(c.perKm, 4900 / 20000);
 });
 
-test('trustScore rewards invoices and penalises anomalies', () => {
+test('trustScore: proof, regularity and odometer parts', () => {
   const good = trustScore(car(), '2026-06-01');
-  assert.equal(good.parts.odometer, 30);
+  assert.equal(good.parts.odometer, 20); // consistent, but no recent odometer photo
   assert.equal(good.parts.regularity, 20); // brakes (2024-03 + 24 months) are overdue
-  assert.equal(good.parts.documentation, 27); // 2 of 3 records with invoice
+  assert.equal(good.parts.documentation, 20); // 2 of 3 records with an invoice → half of 40
   const c = car();
   c.records.push({ id: 'x', date: '2026-06-01', km: 1000, type: 'repair', source: 'owner' });
   assert.equal(trustScore(c, '2026-06-01').parts.odometer, 0);
+  const withPhoto = car();
+  withPhoto.records.push({ id: 'p', date: '2026-05-20', km: 61000, type: 'odometer', source: 'photo', photo: 'data:' });
+  assert.equal(trustScore(withPhoto, '2026-06-01').parts.odometer, 30);
+  assert.equal(trustScore(withPhoto, '2026-10-01').parts.odometer, 20); // photo older than 90 days
+  const allConfirmed = { purchaseKm: 0, records: [{ id: 'w', date: '2026-01-01', km: 10, type: 'repair', source: 'workshop' }] };
+  assert.equal(trustScore(allConfirmed, '2026-01-02').parts.documentation, 40);
+  const ownerOnly = { purchaseKm: 0, records: [{ id: 'o', date: '2026-01-01', km: 10, type: 'repair', source: 'owner' }] };
+  assert.equal(trustScore(ownerOnly, '2026-01-02').parts.documentation, 0);
+  assert.equal(trustScore(ownerOnly, '2026-01-02').score, 50);
   assert.equal(trustScore({ records: [] }, '2026-01-01').score, 0);
+});
+
+test('estimateKm projects from average daily driving', () => {
+  const c = { purchaseDate: '2026-01-01', purchaseKm: 10000, records: [{ date: '2026-03-02', km: 13000, type: 'odometer' }] };
+  const e = estimateKm(c, '2026-04-01'); // 3000 km over 60 days = 50/day, 30 days since
+  assert.equal(e.perDay, 50);
+  assert.equal(e.km, 14500);
+  assert.equal(estimateKm({ purchaseDate: '2026-01-01', purchaseKm: 0, records: [] }, '2026-02-01'), null);
+  assert.equal(estimateKm({ purchaseDate: '2026-01-01', purchaseKm: 0, records: [{ date: '2026-01-05', km: 100 }] }, '2026-02-01'), null); // < 14 days span
+  const r = reminders({ purchaseKm: 0, records: [{ date: '2026-03-01', km: 5000, type: 'oil' }] }, '2026-03-02', 15500);
+  assert.equal(r.find(x => x.key === 'oil').status, 'overdue'); // estimated km passed the 10,000 km interval
 });
 
 test('mask hides all but the tail', () => {

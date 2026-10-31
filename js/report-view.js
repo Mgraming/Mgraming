@@ -48,6 +48,14 @@ export function renderReport(view, report) {
       </ul>
     </section>
 
+    <section class="card small">
+      <h2>إزاي تقرا التقرير</h2>
+      <ul class="levels">
+        ${['workshop', 'invoice', 'photo', 'owner'].map(k => `<li><span class="badge ${k}">${SOURCES[k].label}</span><small>${SOURCES[k].hint}</small></li>`).join('')}
+      </ul>
+      <p class="muted">درجة السجل من ١٠٠: الإثبات (٤٠) + الالتزام بمواعيد الصيانة (٣٠) + سلامة قراءات العداد (٣٠).</p>
+    </section>
+
     <section class="card disclaimer small">
       <b>مهم:</b> البيانات دي مسجّلة بواسطة المالك (وبعضها بفواتير مصوّرة عنده)، ومش موثّقة من جهة رسمية لحد دلوقتي.
       التقرير ده بيساعدك، بس <b>مش بديل عن فحص العربية</b> في مركز فحص أو مع ميكانيكي تثق فيه قبل الشراء.

@@ -2,6 +2,7 @@ import { SERVICE_TYPES, SOURCES, PART_GRADES, WARNING_LIGHTS } from './data.js';
 import {
   currentKm, sortedRecords, reminders, costs, trustScore, odometerAnomalies,
   buildReport, encodeReport, expandReport, workshopDirectory, warrantyInfo, newWarranty,
+  estimateKm, lastOdometerPhoto, daysBetween,
 } from './logic.js';
 import { uid, exportCar, parseImport } from './store.js';
 import { renderReport } from './report-view.js';
@@ -83,6 +84,15 @@ function carForm(car = {}) {
       <label>تاريخ الشراء<input name="purchaseDate" type="date" value="${esc(car.purchaseDate || today())}"></label>
       <label>العداد وقت الشراء (كم)<input name="purchaseKm" type="number" min="0" inputmode="numeric" value="${esc(car.purchaseKm ?? 0)}"></label>
     </div>
+    ${car.id ? '' : `<fieldset>
+      <legend>عشان التذكيرات تشتغل من النهارده</legend>
+      <label>العداد دلوقتي (كم)<input name="kmToday" type="number" min="0" inputmode="numeric" placeholder="الرقم اللي على العداد النهارده"></label>
+      <div class="row2">
+        <label>آخر تغيير زيت كان امتى؟<input name="oilDate" type="date" max="${today()}"></label>
+        <label>عند كام كيلو؟<input name="oilKm" type="number" min="0" inputmode="numeric"></label>
+      </div>
+      <small class="muted">مش لازم تكون متأكد ١٠٠٪. التاريخ لوحده كفاية.</small>
+    </fieldset>`}
     <div class="row2">
       <label>انتهاء الرخصة<input name="licenseExpiry" type="date" value="${esc(car.licenseExpiry)}"></label>
       <label>انتهاء التأمين<input name="insuranceExpiry" type="date" value="${esc(car.insuranceExpiry)}"></label>
@@ -128,11 +138,14 @@ function bindCarForm(existing) {
     e.preventDefault();
     const missing = ['make', 'model', 'year'].find(n => !get(n));
     if (missing) { toast('اختار الماركة والموديل وسنة الصنع الأول'); steps[missing](); return; }
-    const f = Object.fromEntries(new FormData(form));
+    const { kmToday, oilDate, oilKm, ...f } = Object.fromEntries(new FormData(form));
     const data = { ...f, year: Number(f.year), purchaseKm: Number(f.purchaseKm) || 0 };
     if (existing) Object.assign(existing, data);
     else {
-      const car = { id: uid(), createdAt: today(), records: [], ...data };
+      const records = [];
+      if (oilDate) records.push({ id: uid(), date: oilDate, km: Number(oilKm) || 0, type: 'oil', title: 'آخر تغيير زيت (من الذاكرة)', source: 'owner', parts: [] });
+      if (Number(kmToday) > data.purchaseKm) records.push({ id: uid(), date: today(), km: Number(kmToday), type: 'odometer', title: 'قراءة عداد', source: 'owner', parts: [] });
+      const car = { id: uid(), createdAt: today(), records, ...data };
       state.cars.push(car);
       state.activeCarId = car.id;
     }
@@ -181,9 +194,16 @@ function bizAccounts() {
   return all.length ? `<ul class="menu card">${all.map(a => `<li><a href="${esc(a.href)}">${icon(a.ic)}<span><b>${esc(a.name)}</b><small class="muted"> • ${a.sub}</small></span>${icon('chevron-left', 'chev')}</a></li>`).join('')}</ul>` : '';
 }
 
+// Today's best odometer guess: the last reading, moved forward by the owner's average daily driving.
+const kmNow = (car, t) => Math.max(currentKm(car), estimateKm(car, t)?.km || 0);
+const ODO_NUDGE_DAYS = 30;
+
 function viewHome(car) {
   const t = today();
-  const rem = reminders(car, t);
+  const rem = reminders(car, t, kmNow(car, t));
+  const est = estimateKm(car, t);
+  const lastPhoto = lastOdometerPhoto(car);
+  const needsPhoto = car.records.length && (!lastPhoto || daysBetween(lastPhoto.date, t) > ODO_NUDGE_DAYS);
   const urgent = rem.filter(r => r.status !== 'ok');
   const c = costs(car);
   const ts = trustScore(car, t);
@@ -195,11 +215,19 @@ function viewHome(car) {
       <div class="grow">
         <small class="eyebrow">${icon('car', 'tiny')} عربيتي</small>
         <h1>${esc(car.make)} ${esc(car.model)} <span>${esc(car.year)}</span></h1>
+        <small class="odo-label">قراءة العداد (الكيلومترات اللي العربية مشيتها)</small>
         <div class="odo">${icon('gauge')}<b>${num(currentKm(car))}</b><small>كم</small></div>
-        <button class="link light" data-action="odometer">${icon('pencil', 'tiny')} تحديث العداد</button>
+        ${est && est.daysSince > 0 ? `<small class="odo-est">النهارده تقريباً ${num(est.km)} كم • بتمشي حوالي ${num(Math.round(est.perDay))} كم في اليوم</small>` : ''}
+        <button class="link light" data-action="odometer">${icon('camera', 'tiny')} حدّث العداد</button>
       </div>
-      <div class="score">${scoreRing(ts.score)}<small>درجة السجل</small></div>
+      <button class="score" data-action="score" aria-label="إيه هي درجة السجل؟">${scoreRing(ts.score)}<small>درجة السجل<br>من ١٠٠ ${icon('info', 'tiny')}</small></button>
     </section>
+
+    ${needsPhoto ? `<button class="nudge" data-action="odometer">
+      <span class="ico tone-soon">${icon('camera')}</span>
+      <span class="grow"><b>صوّر العداد</b><small>${lastPhoto ? `آخر صورة من ${num(daysBetween(lastPhoto.date, t))} يوم` : 'لسه مفيش صورة للعداد'}. صورة كل شهر بتخلّي تذكيرات الصيانة مظبوطة وبتثبت للمشتري إن العداد سليم.</small></span>
+      ${icon('chevron-left', 'chev')}
+    </button>` : ''}
 
     ${anomalies.length ? `<div class="alert">${icon('triangle-alert')}<span>في ${num(anomalies.length)} قراءة عداد أقل من قراءة قبلها. راجعها في السجل، لأنها بتقلل ثقة المشتري.</span></div>` : ''}
 
@@ -237,14 +265,20 @@ function viewHome(car) {
       </ul>
     </section>`;
 
-  view.querySelector('[data-action=odometer]').onclick = () => openOdometer(car);
+  view.querySelectorAll('[data-action=odometer]').forEach(b => b.onclick = () => openOdometer(car));
+  view.querySelector('[data-action=score]').onclick = () => explainScore(car, ts);
   view.querySelectorAll('.record').forEach(li => li.onclick = () => go('add/' + li.dataset.id));
 }
 
 function openOdometer(car) {
-  modal.innerHTML = `<form method="dialog" class="form">
-    <h2>تحديث العداد</h2>
-    <label>القراءة الحالية (كم)<input name="km" type="number" min="0" inputmode="numeric" required value="${currentKm(car)}"></label>
+  let photo = null;
+  modal.innerHTML = `<form method="dialog" class="form" id="odo-form">
+    <h2>حدّث العداد</h2>
+    <p class="muted small">صوّر تابلوه العربية والعداد باين فيها، واكتب الرقم اللي في الصورة. الصورة بتتحفظ مع القراءة كإثبات للمشتري.</p>
+    <label class="upload">${icon('camera')}<span>صوّر العداد</span><input type="file" accept="image/*" capture="environment" id="odo-photo"></label>
+    <div id="odo-preview"></div>
+    <label>الرقم اللي على العداد (كم)<input name="km" type="number" min="0" inputmode="numeric" required value="${currentKm(car)}"></label>
+    <p class="muted small" id="odo-check"></p>
     <div class="row2">
       <button class="btn" value="cancel" formnovalidate>إلغاء</button>
       <button class="btn primary" value="ok">حفظ</button>
@@ -252,13 +286,58 @@ function openOdometer(car) {
   </form>`;
   modal.returnValue = '';
   modal.showModal();
-  modal.querySelector('form').onsubmit = e => {
+  const form = modal.querySelector('form');
+  const check = () => {
+    const km = Number(form.elements.km.value);
+    const last = currentKm(car);
+    document.getElementById('odo-check').innerHTML = km < last
+      ? `<span class="neg">${icon('triangle-alert', 'tiny')} الرقم ده أقل من آخر قراءة (${num(last)} كم). اتأكد منه.</span>`
+      : km > last ? `هتضيف ${num(km - last)} كم من آخر قراءة.` : '';
+  };
+  form.elements.km.oninput = check;
+  document.getElementById('odo-photo').onchange = async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      photo = await compressImage(file, 1100, 0.7);
+      document.getElementById('odo-preview').innerHTML = `<img src="${photo}" alt="صورة العداد">`;
+      form.elements.km.select();
+    } catch { toast('مقدرناش نقرا الصورة'); }
+  };
+  form.onsubmit = e => {
     if (e.submitter?.value !== 'ok') return;
-    const km = Number(new FormData(e.target).get('km'));
-    car.records.push({ id: uid(), date: today(), km, type: 'odometer', title: 'قراءة عداد', source: 'owner', parts: [] });
+    const km = Number(new FormData(form).get('km'));
+    car.records.push({ id: uid(), date: today(), km, type: 'odometer', title: 'قراءة عداد', source: photo ? 'photo' : 'owner', photo, parts: [] });
     persist();
+    toast(photo ? 'القراءة اتسجّلت بالصورة' : 'القراءة اتسجّلت. المرة الجاية صوّر العداد عشان تبقى موثّقة');
     render();
   };
+}
+
+// Plain-language breakdown of the record score, opened from the ring on the home screen.
+function explainScore(car, ts) {
+  const row = (ic, title, got, max, detail) => `<li>
+    <span class="ico ${got === max ? 'tone-good' : 'tone-soon'}">${icon(got === max ? 'check' : ic)}</span>
+    <div class="grow"><b>${title} <span class="pts">${num(got)} من ${num(max)}</span></b><small>${detail}</small></div>
+  </li>`;
+  const services = car.records.filter(r => r.type !== 'odometer');
+  const proven = services.filter(r => r.source === 'invoice' || r.source === 'workshop').length;
+  modal.innerHTML = `<form method="dialog" class="form explain">
+    <div class="explain-head">${scoreRing(ts.score)}<div><h2>درجة السجل: ${num(ts.score)} من ١٠٠</h2>
+      <small class="muted">بتقول للمشتري قد إيه يقدر يصدّق تاريخ العربية دي. كل ما تعلى، العربية تتباع أسهل وبسعر أحسن.</small></div></div>
+    ${ts.empty ? '<p class="notice"><span>الدرجة بتبدأ تتحسب أول ما تسجّل أول صيانة.</span></p>' : `<ul class="list">
+      ${row('receipt', 'الإثبات', ts.parts.documentation, 40, `${num(proven)} من ${num(services.length)} صيانة معاها فاتورة أو تأكيد ورشة. صيانة من غير فاتورة بتتحسب، بس قيمتها أقل.`)}
+      ${row('clock', 'الالتزام بالمواعيد', ts.parts.regularity, 30, ts.overdue ? `في ${num(ts.overdue)} صيانة متأخرة، وكل واحدة بتنقّص ١٠.` : 'مفيش صيانة متأخرة.')}
+      ${row('gauge', 'العداد', ts.parts.odometer, 30, `${ts.parts.odometer >= 20 ? 'القراءات ماشية بالترتيب (٢٠).' : 'في قراءة أقل من اللي قبلها (٠ من ٢٠).'} ${ts.freshPhoto ? 'وفي صورة عداد حديثة (١٠).' : 'صوّر العداد مرة في الشهر عشان تاخد الـ ١٠ الباقيين.'}`)}
+    </ul>`}
+    <h3>درجات الثقة في كل سجل</h3>
+    <ul class="levels">
+      ${['workshop', 'invoice', 'owner'].map(k => `<li><span class="badge ${k}">${SOURCES[k].label}</span><small>${SOURCES[k].hint}</small></li>`).join('')}
+    </ul>
+    <button class="btn primary wide" value="cancel">فهمت</button>
+  </form>`;
+  modal.returnValue = '';
+  modal.showModal();
 }
 
 function recordItem(r, flagged) {
@@ -345,6 +424,7 @@ function viewAdd(car, arg) {
         <legend>صورة الفاتورة <small>(بترفع درجة السجل)</small></legend>
         <label class="upload">${icon('camera')}<span>صوّر أو ارفع الفاتورة</span><input type="file" accept="image/*" capture="environment" id="photo-input"></label>
         <div id="photo-preview">${photo ? `<img src="${photo}" alt="الفاتورة">` : ''}</div>
+        <p class="trust-hint" id="trust-hint"></p>
       </fieldset>
       <label>ملاحظات<textarea name="notes" rows="2">${esc(r.notes)}</textarea></label>
       <button class="btn primary wide" type="submit">حفظ</button>
@@ -356,6 +436,12 @@ function viewAdd(car, arg) {
   document.getElementById('add-part').onclick = () => parts.insertAdjacentHTML('beforeend', partRow());
   parts.onclick = e => { if (e.target.closest('[data-remove-part]')) e.target.closest('.part-row').remove(); };
   if (rec) bindWarranty(rec);
+  const showTrust = () => {
+    const k = rec?.source === 'workshop' ? 'workshop' : photo ? 'invoice' : 'owner';
+    document.getElementById('trust-hint').innerHTML = `هيتسجّل <span class="badge ${k}">${SOURCES[k].label}</span> ${k === 'owner'
+      ? 'ومقبول، بس صورة الفاتورة بتخلّيه يتحسب أكتر في درجة السجل وفي تقرير المشتري.' : ''}`;
+  };
+  showTrust();
 
   document.getElementById('photo-input').onchange = async e => {
     const file = e.target.files[0];
@@ -363,6 +449,7 @@ function viewAdd(car, arg) {
     try {
       photo = await compressImage(file);
       document.getElementById('photo-preview').innerHTML = `<img src="${photo}" alt="الفاتورة">`;
+      showTrust();
     } catch {
       toast('مقدرناش نقرا الصورة');
     }
@@ -378,7 +465,7 @@ function viewAdd(car, arg) {
       km: Number(fd.get('km')), cost: Number(fd.get('cost')) || 0, workshop: fd.get('workshop').trim(),
       notes: fd.get('notes').trim(), photo,
       parts: names.map((name, i) => ({ name: name.trim(), grade: grades[i] })).filter(p => p.name),
-      source: photo ? 'invoice' : 'owner',
+      source: rec?.source === 'workshop' ? 'workshop' : photo ? (fd.get('type') === 'odometer' ? 'photo' : 'invoice') : 'owner',
     };
     let saved = rec;
     if (rec) Object.assign(rec, data);
@@ -533,11 +620,13 @@ function viewMore(car) {
 }
 
 function viewReminders(car) {
-  const rem = reminders(car, today());
+  const t = today();
+  const rem = reminders(car, t, kmNow(car, t));
+  const est = estimateKm(car, t);
   view.innerHTML = `
     <a class="back" href="#home">${icon('chevron-left', 'flip')} الرئيسية</a>
     <h1 class="page-title">التذكيرات</h1>
-    <p class="muted small">المواعيد محسوبة من آخر مرة اتسجّلت ومن فترات عامة متعارف عليها. ارجع لكتالوج عربيتك للمواعيد الدقيقة.</p>
+    <p class="muted small">المواعيد محسوبة من آخر مرة اتسجّلت ومن فترات عامة متعارف عليها. ارجع لكتالوج عربيتك للمواعيد الدقيقة.${est && est.daysSince > 0 ? ` الكيلومترات محسوبة على عداد تقديري ${num(est.km)} كم.` : ''}</p>
     <ul class="list card">${rem.map(reminderItem).join('') || '<li class="muted">مفيش تذكيرات</li>'}</ul>`;
 }
 

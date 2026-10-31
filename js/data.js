@@ -21,11 +21,13 @@ export const SERVICE_TYPES = {
   other:        { label: 'أخرى',                 icon: 'file-pen', km: null,  months: null },
 };
 
+// How much a record can be trusted, lowest to highest. Shown on every record and in the buyer's report.
 export const SOURCES = {
-  owner:   { label: 'مسجّل من المالك', weight: 1 },
-  invoice: { label: 'بفاتورة مرفقة',   weight: 2 },
-  // Reserved for phase 2 (workshop app with a backend that signs the record).
-  workshop:{ label: 'موثّق من الورشة', weight: 3 },
+  owner:    { label: 'كلام المالك',     hint: 'متسجّل من غير فاتورة', weight: 1 },
+  invoice:  { label: 'بفاتورة',         hint: 'متسجّل ومعاه صورة الفاتورة', weight: 2 },
+  photo:    { label: 'بصورة العداد',    hint: 'قراءة عداد ومعاها صورة', weight: 2 },
+  // Set by the backend once the workshop and the owner both confirm the job (see supabase/schema.sql).
+  workshop: { label: 'مأكَّد من الورشة', hint: 'الورشة والمالك الاتنين أكدوا الشغل', weight: 3 },
 };
 
 export const PART_GRADES = {

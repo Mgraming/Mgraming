@@ -61,8 +61,9 @@ function status(kmLeft, daysLeft) {
 
 const STATUS_ORDER = { overdue: 0, soon: 1, unknown: 2, ok: 3 };
 
-export function reminders(car, today) {
-  const km = currentKm(car);
+// kmNow lets callers pass an estimated reading (see estimateKm) so reminders advance between updates.
+export function reminders(car, today, kmNow = currentKm(car)) {
+  const km = kmNow;
   const list = [];
 
   for (const [type, def] of Object.entries(SERVICE_TYPES)) {
@@ -111,21 +112,51 @@ export function costs(car) {
   return { total, byType, byYear, perKm: driven > 0 ? total / driven : null };
 }
 
-// Explainable 0–100 score: documentation (40) + on-time maintenance (30) + consistent odometer (30).
+const ODO_PHOTO_FRESH_DAYS = 90;
+
+export function lastOdometerPhoto(car) {
+  return sortedRecords(car).filter(r => r.type === 'odometer' && r.photo).pop() || null;
+}
+
+// Explainable 0–100 score:
+//   documentation (40): how many service records have proof (invoice photo or workshop confirmation);
+//   regularity (30): 10 off for each overdue maintenance item;
+//   odometer (30): 20 for readings that only go up + 10 for an odometer photo in the last 90 days.
 export function trustScore(car, today) {
   const records = (car.records || []).filter(r => r.type !== 'odometer');
-  if (!records.length) return { score: 0, parts: { documentation: 0, regularity: 0, odometer: 0 } };
+  if (!records.length) return { score: 0, parts: { documentation: 0, regularity: 0, odometer: 0 }, empty: true };
 
-  const maxWeight = SOURCES.invoice.weight;
-  const avgWeight = records.reduce((s, r) => s + (SOURCES[r.source]?.weight || 1), 0) / records.length;
-  const documentation = Math.round(40 * Math.min((avgWeight - 1) / (maxWeight - 1), 1));
+  const maxWeight = SOURCES.workshop.weight;
+  const proof = records.reduce((s, r) => s + ((SOURCES[r.source]?.weight || 1) - 1), 0) / (records.length * (maxWeight - 1));
+  // An invoice on every record earns 30 of 40; workshop confirmation earns the rest.
+  const documentation = Math.round(40 * Math.min(proof * 1.5, 1));
 
   const overdue = reminders(car, today).filter(r => r.status === 'overdue').length;
   const regularity = Math.max(0, 30 - overdue * 10);
 
-  const odometer = odometerAnomalies(car).length ? 0 : 30;
+  const photo = lastOdometerPhoto(car);
+  const freshPhoto = photo && daysBetween(photo.date, today) <= ODO_PHOTO_FRESH_DAYS;
+  const odometer = (odometerAnomalies(car).length ? 0 : 20) + (freshPhoto ? 10 : 0);
 
-  return { score: documentation + regularity + odometer, parts: { documentation, regularity, odometer } };
+  return { score: documentation + regularity + odometer, parts: { documentation, regularity, odometer }, overdue, freshPhoto: !!freshPhoto };
+}
+
+// Average daily driving from real readings, used to estimate today's odometer between updates.
+// Needs two readings at least 14 days apart; uses up to the last year of history.
+export function estimateKm(car, today) {
+  const readings = [
+    ...(car.purchaseDate ? [{ date: car.purchaseDate, km: car.purchaseKm || 0 }] : []),
+    ...(car.records || []).filter(r => r.km > 0).map(r => ({ date: r.date, km: r.km })),
+  ].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.km - b.km));
+  if (readings.length < 2) return null;
+  const last = readings.at(-1);
+  const yearAgo = addMonths(last.date, -12);
+  const first = readings.find(r => r.date >= yearAgo && daysBetween(r.date, last.date) >= 14);
+  if (!first) return null;
+  const perDay = (last.km - first.km) / daysBetween(first.date, last.date);
+  if (!(perDay > 0)) return null;
+  const daysSince = Math.max(0, daysBetween(last.date, today));
+  return { km: Math.round(last.km + perDay * daysSince), perDay, lastKm: last.km, lastDate: last.date, daysSince };
 }
 
 // Mask all but the last 2 characters of a plate / VIN so a shared report doesn't identify the owner.
