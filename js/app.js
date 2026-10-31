@@ -1,4 +1,4 @@
-import { SERVICE_TYPES, SOURCES, PART_GRADES, WARNING_LIGHTS } from './data.js';
+import { SERVICE_TYPES, SOURCES, PART_GRADES, WARNING_LIGHTS, DOC_TYPES } from './data.js';
 import {
   currentKm, sortedRecords, reminders, costs, trustScore, odometerAnomalies,
   buildReport, encodeReport, expandReport, workshopDirectory, warrantyInfo, newWarranty,
@@ -16,6 +16,7 @@ import {
   viewWorkshops, viewShop, viewChat, viewJoin, findShop, warrantyBlock, bindWarranty,
 } from './shops.js';
 import { viewBiz, viewInbox } from './biz.js';
+import { viewDocs, viewFuel, editFuel, docsSummary, fuelSummary } from './garage.js';
 import { viewParts, viewStore, viewCart, viewJoinStore, viewStoreBiz } from './parts.js';
 
 // ---------- small pieces ----------
@@ -194,6 +195,8 @@ function bizAccounts() {
   return all.length ? `<ul class="menu card">${all.map(a => `<li><a href="${esc(a.href)}">${icon(a.ic)}<span><b>${esc(a.name)}</b><small class="muted"> • ${a.sub}</small></span>${icon('chevron-left', 'chev')}</a></li>`).join('')}</ul>` : '';
 }
 
+const docsLabel = d => d.title || DOC_TYPES[d.type]?.label || 'ورقة';
+
 // Today's best odometer guess: the last reading, moved forward by the owner's average daily driving.
 const kmNow = (car, t) => Math.max(currentKm(car), estimateKm(car, t)?.km || 0);
 const ODO_NUDGE_DAYS = 30;
@@ -204,6 +207,8 @@ function viewHome(car) {
   const est = estimateKm(car, t);
   const lastPhoto = lastOdometerPhoto(car);
   const needsPhoto = car.records.length && (!lastPhoto || daysBetween(lastPhoto.date, t) > ODO_NUDGE_DAYS);
+  const docsInfo = docsSummary(car, t);
+  const fuelInfo = fuelSummary(car, t);
   const urgent = rem.filter(r => r.status !== 'ok');
   const c = costs(car);
   const ts = trustScore(car, t);
@@ -248,6 +253,19 @@ function viewHome(car) {
           ${icon('chevron-left', 'chev')}</li>`;
       }).join('')}</ul>
     </section>` : ''}
+
+    <div class="tiles">
+      <a class="tile" href="#docs">
+        <span class="ico ${docsInfo.nextDays != null && docsInfo.nextDays <= 30 ? 'tone-soon' : ''}">${icon('file-text')}</span>
+        <span class="grow"><b>ورق العربية</b><small>${docsInfo.count
+          ? (docsInfo.next ? (docsInfo.nextDays < 0 ? `${esc(docsLabel(docsInfo.next))} خلصت` : `${esc(docsLabel(docsInfo.next))} بعد ${num(docsInfo.nextDays)} يوم`) : `${num(docsInfo.count)} ورقة`)
+          : 'صوّر الرخصة والتأمين'}</small></span>
+      </a>
+      <a class="tile" href="#fuel">
+        <span class="ico ${fuelInfo.change >= 0.15 ? 'tone-soon' : ''}">${icon('fuel')}</span>
+        <span class="grow"><b>البنزين</b><small>${fuelInfo.avg != null ? `${fuelInfo.avg.toLocaleString('ar-EG', { maximumFractionDigits: 1 })} لتر/١٠٠ كم` : fuelInfo.count ? 'محتاج تفويلة فُل كمان' : 'سجّل أول تفويلة'}</small></span>
+      </a>
+    </div>
 
     <section class="stats">
       <div class="stat"><small>صرفت السنة دي</small><b>${money(c.byYear[t.slice(0, 4)] || 0)}</b></div>
@@ -397,7 +415,12 @@ function viewAdd(car, arg) {
   const known = workshopDirectory(state.cars, state.workshops).map(w => w.name);
 
   view.innerHTML = `
-    <h1 class="page-title">${rec ? 'تفاصيل الصيانة' : 'سجّل صيانة'}</h1>
+    <h1 class="page-title">${rec ? 'تفاصيل الصيانة' : 'سجّل'}</h1>
+    ${rec || shop ? '' : `<nav class="seg three" aria-label="تسجّل إيه؟">
+      <a href="#add" class="on">${icon('wrench')} صيانة</a>
+      <button type="button" data-quick="fuel">${icon('fuel')} تفويلة</button>
+      <button type="button" data-quick="odo">${icon('gauge')} عداد</button>
+    </nav>`}
     ${shop ? `<div class="notice good">${icon('shield-check')}<span>شغل مع <b>${esc(shop.name)}</b>. هياخد ضمان باسبور ${num(shop.warrantyDays)} يوم من تاريخ الشغل.</span></div>` : ''}
     ${rec ? warrantyBlock(rec) : ''}
     <form id="rec-form" class="card form">
@@ -436,6 +459,8 @@ function viewAdd(car, arg) {
   document.getElementById('add-part').onclick = () => parts.insertAdjacentHTML('beforeend', partRow());
   parts.onclick = e => { if (e.target.closest('[data-remove-part]')) e.target.closest('.part-row').remove(); };
   if (rec) bindWarranty(rec);
+  view.querySelector('[data-quick=fuel]')?.addEventListener('click', () => editFuel(car, null));
+  view.querySelector('[data-quick=odo]')?.addEventListener('click', () => openOdometer(car));
   const showTrust = () => {
     const k = rec?.source === 'workshop' ? 'workshop' : photo ? 'invoice' : 'owner';
     document.getElementById('trust-hint').innerHTML = `هيتسجّل <span class="badge ${k}">${SOURCES[k].label}</span> ${k === 'owner'
@@ -574,6 +599,8 @@ function viewMore(car) {
     <h1 class="page-title">المزيد</h1>
     <ul class="menu card">
       ${item('#reminders', 'bell', 'كل التذكيرات')}
+      ${item('#docs', 'file-text', 'ورق العربية')}
+      ${item('#fuel', 'fuel', 'البنزين والاستهلاك')}
       ${item('#lights', 'triangle-alert', 'دليل لمبات التابلوه')}
       ${item('#car', 'pencil', 'بيانات العربية والرخصة والتأمين')}
       ${item('#newcar', 'car', 'ضيف عربية تانية')}
@@ -656,7 +683,7 @@ function renderCarSwitch() {
 
 document.getElementById('car-switch').onchange = e => { state.activeCarId = e.target.value; persist(); render(); };
 
-const TAB_OF = { report: 'passport', shop: 'workshops', chat: 'workshops', join: 'workshops', parts: 'workshops', store: 'workshops', cart: 'workshops', 'join-store': 'workshops' };
+const TAB_OF = { docs: 'home', fuel: 'home', report: 'passport', shop: 'workshops', chat: 'workshops', join: 'workshops', parts: 'workshops', store: 'workshops', cart: 'workshops', 'join-store': 'workshops' };
 // Pages a workshop or parts-store owner can open without having a car in the app.
 const NO_CAR_ROUTES = {
   join: arg => viewJoin(arg), 'join-store': arg => viewJoinStore(arg), biz: arg => viewBiz(arg), 'store-biz': arg => viewStoreBiz(arg),
@@ -688,6 +715,8 @@ function render() {
     passport: () => viewPassport(car),
     more: () => viewMore(car),
     reminders: () => viewReminders(car),
+    docs: () => viewDocs(car),
+    fuel: () => viewFuel(car),
     report: () => viewReport(car),
     workshops: () => viewWorkshops(car),
     shop: () => viewShop(arg),

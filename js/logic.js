@@ -1,5 +1,5 @@
 // Pure domain logic (no DOM, no storage) so it can be unit-tested in Node.
-import { SERVICE_TYPES, SOURCES } from './data.js';
+import { SERVICE_TYPES, SOURCES, DOC_TYPES } from './data.js';
 import { findBrand } from './cars.js';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -32,8 +32,13 @@ export function sortedRecords(car) {
     a.date === b.date ? (a.km || 0) - (b.km || 0) : a.date < b.date ? -1 : 1);
 }
 
+// Every odometer reading the owner has given us: service records and fuel fill-ups.
+function kmReadings(car) {
+  return [...(car.records || []), ...(car.fuel || [])].filter(r => r.km > 0).map(r => ({ date: r.date, km: r.km }));
+}
+
 export function currentKm(car) {
-  return (car.records || []).reduce((max, r) => Math.max(max, r.km || 0), car.purchaseKm || 0);
+  return kmReadings(car).reduce((max, r) => Math.max(max, r.km), car.purchaseKm || 0);
 }
 
 // A reading lower than an earlier one (by date) suggests a typo or odometer tampering.
@@ -82,18 +87,29 @@ export function reminders(car, today, kmNow = currentKm(car)) {
       lastDate: last.date, status: status(kmLeft, daysLeft) });
   }
 
-  const docs = [
-    ['license', 'تجديد رخصة العربية', '🪪', car.licenseExpiry],
-    ['insurance', 'تجديد التأمين', '🛡️', car.insuranceExpiry],
-  ];
-  for (const [key, label, icon, date] of docs) {
-    if (!date) continue;
-    const daysLeft = daysBetween(today, date);
-    list.push({ key, label, icon, dueDate: date, daysLeft, kmLeft: null, status: status(null, daysLeft) });
+  for (const d of documentExpiries(car)) {
+    const daysLeft = daysBetween(today, d.date);
+    list.push({ key: d.key, label: d.label, icon: d.icon, dueDate: d.date, daysLeft, kmLeft: null, status: status(null, daysLeft) });
   }
 
   return list.sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]
     || (a.daysLeft ?? Infinity) - (b.daysLeft ?? Infinity));
+}
+
+// Expiry dates from the documents wallet, plus the older licence/insurance fields on the car
+// when the wallet doesn't already hold that document with a date.
+export function documentExpiries(car) {
+  const out = (car.docs || []).filter(d => d.expiry).map(d => ({
+    key: 'doc-' + d.id, type: d.type, date: d.expiry, icon: DOC_TYPES[d.type]?.icon || 'file-text',
+    label: `تجديد ${d.title || DOC_TYPES[d.type]?.label || 'ورقة'}`,
+  }));
+  const legacy = [['license', car.licenseExpiry], ['insurance', car.insuranceExpiry]];
+  for (const [type, date] of legacy) {
+    if (date && !out.some(d => d.type === type)) {
+      out.push({ key: type, type, date, icon: DOC_TYPES[type].icon, label: `تجديد ${DOC_TYPES[type].label}` });
+    }
+  }
+  return out;
 }
 
 export function costs(car) {
@@ -146,7 +162,7 @@ export function trustScore(car, today) {
 export function estimateKm(car, today) {
   const readings = [
     ...(car.purchaseDate ? [{ date: car.purchaseDate, km: car.purchaseKm || 0 }] : []),
-    ...(car.records || []).filter(r => r.km > 0).map(r => ({ date: r.date, km: r.km })),
+    ...kmReadings(car),
   ].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.km - b.km));
   if (readings.length < 2) return null;
   const last = readings.at(-1);
@@ -421,4 +437,39 @@ export function productFits(product, car) {
 
 export function cartTotal(lines) {
   return lines.reduce((s, l) => s + l.price * l.qty, 0);
+}
+
+// ---------- fuel ----------
+
+// Consumption uses the full-to-full method: litres put in after one full tank, up to and including the next
+// full tank, divided by the distance between them. Partial fills are added to the segment they fall in.
+export function fuelStats(entries, today, { recentSegments = 5 } = {}) {
+  const fills = [...(entries || [])].sort((a, b) => (a.date === b.date ? a.km - b.km : a.date < b.date ? -1 : 1));
+  const segments = [];
+  let start = null, litres = 0, cost = 0;
+  for (const f of fills) {
+    if (start) { litres += Number(f.liters) || 0; cost += Number(f.total) || 0; }
+    if (f.full) {
+      if (start && f.km > start.km) {
+        const km = f.km - start.km;
+        segments.push({ from: start.date, to: f.date, toKm: f.km, km, liters: litres, cost, l100: (litres / km) * 100, costPerKm: cost / km });
+      }
+      start = f; litres = 0; cost = 0;
+    }
+  }
+  const recent = segments.slice(-recentSegments);
+  const sum = (arr, k) => arr.reduce((s, x) => s + x[k], 0);
+  const avg = recent.length ? (sum(recent, 'liters') / sum(recent, 'km')) * 100 : null;
+  const latest = segments.at(-1) || null;
+  // Compare the latest tank with the average of the ones before it.
+  const before = segments.slice(-recentSegments - 1, -1);
+  const baseline = before.length >= 2 ? (sum(before, 'liters') / sum(before, 'km')) * 100 : null;
+  const change = latest && baseline ? (latest.l100 - baseline) / baseline : null;
+
+  const month = today.slice(0, 7);
+  const thisMonth = fills.filter(f => f.date.startsWith(month)).reduce((s, f) => s + (Number(f.total) || 0), 0);
+  const priced = fills.filter(f => f.liters > 0 && f.total > 0);
+  const lastPrice = priced.length ? priced.at(-1).total / priced.at(-1).liters : null;
+  const costPerKm = recent.length ? sum(recent, 'cost') / sum(recent, 'km') : null;
+  return { segments, avg, latest, baseline, change, thisMonth, lastPrice, costPerKm, count: fills.length };
 }

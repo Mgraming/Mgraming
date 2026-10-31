@@ -233,3 +233,43 @@ test('productFits matches make or make+model in Arabic or English', () => {
   assert.ok(!productFits({ fits: ['Hyundai'] }, car));
   assert.equal(cartTotal([{ price: 100, qty: 2 }, { price: 50, qty: 1 }]), 250);
 });
+
+import { fuelStats, documentExpiries } from '../js/logic.js';
+import { exportCar } from '../js/store.js';
+
+test('fuelStats: full-to-full consumption, partial fills, change vs baseline', () => {
+  const fills = [
+    { date: '2026-01-01', km: 10000, liters: 40, total: 600, full: true },
+    { date: '2026-01-10', km: 10500, liters: 40, total: 600, full: true },  // 8 L/100km
+    { date: '2026-01-20', km: 10800, liters: 10, total: 150, full: false }, // partial
+    { date: '2026-01-25', km: 11000, liters: 30, total: 450, full: true },  // (10+30)/500 = 8
+    { date: '2026-02-05', km: 11500, liters: 50, total: 750, full: true },  // 10 → +25% vs 8
+  ];
+  const s = fuelStats(fills, '2026-02-10');
+  assert.equal(s.segments.length, 3);
+  assert.equal(s.segments[1].l100, 8);
+  assert.equal(s.latest.l100, 10);
+  assert.equal(s.baseline, 8);
+  assert.equal(s.change, 0.25);
+  assert.equal(s.thisMonth, 750);
+  assert.equal(s.lastPrice, 15);
+  assert.equal(Math.round(s.avg * 100) / 100, 8.67); // 130 L over 1500 km
+  assert.equal(fuelStats([], '2026-01-01').avg, null);
+  assert.equal(fuelStats([{ date: '2026-01-01', km: 100, liters: 30, total: 1, full: true }], '2026-01-01').segments.length, 0);
+});
+
+test('fuel readings move the odometer; wallet expiries become reminders', () => {
+  const c = { purchaseKm: 0, records: [], fuel: [{ date: '2026-01-01', km: 5000, liters: 30, full: true }],
+    docs: [{ id: 'd1', type: 'license', expiry: '2026-02-15' }, { id: 'd2', type: 'contract' }], insuranceExpiry: '2026-06-01', licenseExpiry: '2027-01-01' };
+  assert.equal(currentKm(c), 5000);
+  const ex = documentExpiries(c);
+  assert.deepEqual(ex.map(e => [e.type, e.date]), [['license', '2026-02-15'], ['insurance', '2026-06-01']]); // wallet licence wins over the old field
+  const r = reminders(c, '2026-01-20');
+  assert.equal(r.find(x => x.key === 'doc-d1').status, 'soon');
+});
+
+test('exported passport file leaves personal documents behind', () => {
+  const out = JSON.parse(exportCar({ make: 'كيا', model: 'Rio', records: [], docs: [{ id: 'x', photo: 'data:' }] }));
+  assert.equal(out.car.docs, undefined);
+  assert.equal(out.car.make, 'كيا');
+});

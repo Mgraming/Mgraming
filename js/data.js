@@ -58,3 +58,22 @@ export const WARNING_LIGHTS = [
   { icon: 'fuel', name: 'البنزين احتياطي', severity: 'info',
     advice: 'موّن في أقرب فرصة — السواقة على الاحتياطي باستمرار مش كويسة لطلمبة البنزين.' },
 ];
+
+// Car papers kept in the documents wallet. `expires` marks types that need a renewal reminder.
+export const DOC_TYPES = {
+  license:    { label: 'رخصة العربية',        icon: 'file-text',    expires: true },
+  insurance:  { label: 'وثيقة التأمين',       icon: 'shield-check', expires: true },
+  driver:     { label: 'رخصة القيادة',        icon: 'circle-user',  expires: true },
+  inspection: { label: 'شهادة الفحص',         icon: 'scan-search',  expires: true },
+  contract:   { label: 'عقد البيع / التوكيل',  icon: 'receipt',      expires: false },
+  purchase:   { label: 'فاتورة الشراء',        icon: 'banknote',     expires: false },
+  other:      { label: 'ورقة تانية',           icon: 'file-pen',     expires: false },
+};
+
+export const FUEL_TYPES = {
+  b80: 'بنزين ٨٠',
+  b92: 'بنزين ٩٢',
+  b95: 'بنزين ٩٥',
+  diesel: 'سولار',
+  gas: 'غاز طبيعي',
+};

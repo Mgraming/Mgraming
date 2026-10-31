@@ -26,8 +26,10 @@ export function save(state) {
   }
 }
 
+// The passport file goes to the next owner, so the seller's personal papers (licences, contracts) stay behind.
 export function exportCar(car) {
-  return JSON.stringify({ kind: 'carpass-passport', v: 1, exportedAt: new Date().toISOString(), car }, null, 2);
+  const { docs, ...rest } = car;
+  return JSON.stringify({ kind: 'carpass-passport', v: 1, exportedAt: new Date().toISOString(), car: rest }, null, 2);
 }
 
 export function parseImport(text) {
