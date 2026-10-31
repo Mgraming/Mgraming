@@ -19,6 +19,8 @@ import { viewBiz, viewInbox } from './biz.js';
 import { viewDocs, viewFuel, editFuel, docsSummary, fuelSummary } from './garage.js';
 import { initAuth, onAuthChange, scheduleSync, auth } from './backend.js';
 import { viewAccount, accountBanner, bindAccountBanner } from './account.js';
+import { viewAdmin } from './admin.js';
+import { cache as market, loadMarket, loadRole, myShops, myStores, stopWatching } from './remote.js';
 import { viewParts, viewStore, viewCart, viewJoinStore, viewStoreBiz } from './parts.js';
 
 // ---------- small pieces ----------
@@ -196,8 +198,9 @@ function viewWelcome() {
 
 // The business pages this device manages (local until accounts exist on the server).
 function bizAccounts() {
-  const shops = state.market.listings.map(w => ({ href: `#biz/${w.id}`, ic: 'wrench', name: w.name, sub: 'داشبورد الورشة' }));
-  const stores = state.market.stores.map(st => ({ href: `#store-biz/${st.id}`, ic: 'package', name: st.name, sub: 'داشبورد المحل' }));
+  const pend = x => (x.pending ? ' • مستني الموافقة' : '');
+  const shops = [...myShops(), ...state.market.listings].map(w => ({ href: `#biz/${w.id}`, ic: 'wrench', name: w.name, sub: 'داشبورد الورشة' + pend(w) }));
+  const stores = [...myStores(), ...state.market.stores].map(st => ({ href: `#store-biz/${st.id}`, ic: 'package', name: st.name, sub: 'داشبورد المحل' + pend(st) }));
   const all = [...shops, ...stores];
   return all.length ? `<ul class="menu card">${all.map(a => `<li><a href="${esc(a.href)}">${icon(a.ic)}<span><b>${esc(a.name)}</b><small class="muted"> • ${a.sub}</small></span>${icon('chevron-left', 'chev')}</a></li>`).join('')}</ul>` : '';
 }
@@ -609,6 +612,7 @@ function viewMore(car) {
     <h1 class="page-title">المزيد</h1>
     <ul class="menu card">
       ${item('#account', auth.user ? 'circle-user' : 'log-in', auth.user ? `حسابي <small class="muted" dir="ltr">${esc(auth.user.email || '')}</small>` : 'سجّل دخول أو اعمل حساب')}
+      ${market.role === 'admin' ? item('#admin', 'badge-check', 'الإدارة: موافقة الورش والمحلات') : ''}
     </ul>
     <ul class="menu card">
       ${item('#reminders', 'bell', 'كل التذكيرات')}
@@ -700,6 +704,7 @@ const TAB_OF = { docs: 'home', fuel: 'home', report: 'passport', shop: 'workshop
 // Pages a workshop or parts-store owner can open without having a car in the app.
 const NO_CAR_ROUTES = {
   account: () => viewAccount(),
+  admin: () => viewAdmin(),
   join: arg => viewJoin(arg), 'join-store': arg => viewJoinStore(arg), biz: arg => viewBiz(arg), 'store-biz': arg => viewStoreBiz(arg),
   inbox: arg => viewInbox(arg), shop: arg => viewShop(arg), store: arg => viewStore(arg, null),
 };
@@ -714,6 +719,9 @@ function render() {
   document.querySelector('.tabbar').hidden = !car;
   document.querySelector('.top-more').hidden = !car;
   document.body.dataset.route = route;
+  // Realtime chat subscriptions live only while a conversation is on screen.
+  if (route !== 'chat' && !(route === 'inbox' && arg.includes('/'))) stopWatching();
+  if (MARKET_ROUTES.has(route)) refreshMarket();
   window.scrollTo(0, 0);
 
   if (!car && NO_CAR_ROUTES[route]) return NO_CAR_ROUTES[route](arg);
@@ -730,6 +738,7 @@ function render() {
     more: () => viewMore(car),
     reminders: () => viewReminders(car),
     account: () => viewAccount(),
+    admin: () => viewAdmin(),
     docs: () => viewDocs(car),
     fuel: () => viewFuel(car),
     report: () => viewReport(car),
@@ -749,11 +758,30 @@ function render() {
   }[route] || (() => viewHome(car)))();
 }
 
+// Marketplace listings come from the server; refresh them at most once a minute while browsing.
+const MARKET_ROUTES = new Set(['workshops', 'parts', 'shop', 'store', 'more', 'biz', 'store-biz', 'cart']);
+let marketBusy = false;
+function refreshMarket(force = false) {
+  if (marketBusy || (!force && Date.now() - market.loadedAt < 60000)) return;
+  marketBusy = true;
+  const before = JSON.stringify([market.shops, market.stores]);
+  loadMarket().then(() => {
+    const route = (location.hash.slice(1) || 'home').split('/')[0];
+    if (JSON.stringify([market.shops, market.stores]) !== before && MARKET_ROUTES.has(route) && !modal.open) render();
+  }, () => {}).finally(() => { marketBusy = false; });
+}
+
 setRender(render);
 setAfterPersist(() => scheduleSync());
 // Re-draw after sign-in / sync on screens that only display data, never under an open form.
 const REFRESH_ROUTES = new Set(['home', 'log', 'account', 'more', 'docs', 'fuel', 'passport', 'reminders']);
+let lastUser;
 onAuthChange(() => {
+  if (auth.user?.id !== lastUser) {
+    lastUser = auth.user?.id;
+    loadRole().catch(() => {}).finally(() => { if (!modal.open) render(); });
+    refreshMarket(true);
+  }
   const route = (location.hash.slice(1) || 'home').split('/')[0];
   if (!modal.open && (REFRESH_ROUTES.has(route) || !activeCar())) render();
 });

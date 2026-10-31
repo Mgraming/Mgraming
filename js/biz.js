@@ -7,9 +7,29 @@ import {
   state, view, modal, esc, num, money, today, persist, toast, go, rerender, ask, stars, barChart, PERIODS,
 } from './ui.js';
 
-const myShop = id => state.market.listings.find(w => w.id === id) || null;
-const jobsOf = id => (state.market.jobs[id] ||= []);
+import { auth, friendlyError } from './backend.js';
+import {
+  myShops, isRemoteId, loadJobs, saveJob, deleteJob, loadInbox, loadMessages, sendRemoteMessage, watchConversation, toMessage, online,
+} from './remote.js';
+import { chatLayout, bindChat, appendBubble } from './shops.js';
+
+const myShop = id => state.market.listings.find(w => w.id === id) || myShops().find(w => w.id === id) || null;
+const isRemote = id => isRemoteId(id) && online();
+// Server-backed workshops keep their jobs and inbox in memory, loaded when the dashboard opens.
+const jobsCache = {};
+const inboxCache = {};
+const jobsOf = id => (isRemote(id) ? jobsCache[id] || [] : (state.market.jobs[id] ||= []));
 let period = 'month';
+
+// Load once per visit, then re-draw if the person is still on the same screen.
+function loadThen(key, cacheObj, loader) {
+  if (cacheObj[key] || cacheObj[`${key}:loading`]) return;
+  cacheObj[`${key}:loading`] = true;
+  const route = location.hash;
+  // On failure keep an empty result so the screen settles instead of retrying in a loop; reopening retries.
+  loader().then(v => { cacheObj[key] = v; }, ex => { cacheObj[key] = []; toast(friendlyError(ex)); })
+    .finally(() => { cacheObj[`${key}:loading`] = false; if (location.hash === route) rerender(); });
+}
 
 function kpi(label, value, tone = '') {
   return `<div class="stat ${tone}"><small>${label}</small><b>${value}</b></div>`;
@@ -18,6 +38,10 @@ function kpi(label, value, tone = '') {
 export function viewBiz(id) {
   const shop = myShop(id);
   if (!shop) return go('more');
+  if (isRemote(id)) {
+    loadThen(id, jobsCache, () => loadJobs(id));
+    loadThen(id, inboxCache, () => loadInbox(id));
+  }
   const jobs = jobsOf(id);
   const t = today();
   const fin = j => jobFinancials(j, PLATFORM_FEE_RATE);
@@ -26,10 +50,14 @@ export function viewBiz(id) {
     value: j => { const f = fin(j); return { revenue: f.revenue, profit: f.profit, labor: f.labor, partsPrice: f.partsPrice, partsCost: f.partsCost, fee: f.fee }; },
   });
   const T = stats.totals;
-  const reviews = ratingSummary(state.market.reviews[id]);
+  const reviews = shop.rating || ratingSummary(state.market.reviews[id]);
+  const remoteInbox = isRemote(id) ? inboxCache[id] || [] : null;
   const msgs = state.market.chats[id] || [];
   const lastWs = msgs.map(m => m.from).lastIndexOf('ws');
-  const unread = msgs.slice(lastWs + 1).filter(m => m.from === 'me').length;
+  const unread = remoteInbox ? remoteInbox.reduce((n, c) => n + c.unread, 0) : msgs.slice(lastWs + 1).filter(m => m.from === 'me').length;
+  const inboxLabel = remoteInbox
+    ? (remoteInbox.length ? `${num(remoteInbox.length)} محادثة` : 'مفيش رسايل لسه')
+    : (msgs.length ? `${num(msgs.length)} رسالة` : 'مفيش رسايل لسه');
   const claims = state.cars.flatMap(c => c.records
     .filter(r => r.warranty?.workshopId === id && (r.warranty.claims || []).some(cl => cl.status === 'open'))
     .map(r => ({ car: c, rec: r, wi: warrantyInfo(r, t) })));
@@ -73,7 +101,7 @@ export function viewBiz(id) {
     <div class="biz-links">
       <a class="biz-link" href="#inbox/${esc(id)}">
         <span class="ico">${icon('message-circle')}</span>
-        <span class="grow"><b>الرسايل والحجوزات</b><small>${msgs.length ? `${num(msgs.length)} رسالة` : 'مفيش رسايل لسه'}</small></span>
+        <span class="grow"><b>الرسايل والحجوزات</b><small>${inboxLabel}</small></span>
         ${unread ? `<span class="count">${num(unread)}</span>` : icon('chevron-left', 'chev')}
       </a>
       <div class="biz-link static">
@@ -104,7 +132,7 @@ export function viewBiz(id) {
         </li>`;
       }).join('')}</ul>` : `<div class="empty-state small-empty">${icon('receipt')}<p>سجّل كل شغلانة بالمصنعية وسعر القطع وتكلفتها عليك، والداشبورد هيحسب دخلك وربحك لوحده.</p></div>`}
       <div class="actions">
-        ${hasDemo ? '<button class="btn small" id="clear-demo">امسح البيانات التجريبية</button>'
+        ${isRemote(id) ? '' : hasDemo ? '<button class="btn small" id="clear-demo">امسح البيانات التجريبية</button>'
           : '<button class="btn small" id="fill-demo">عبّي بيانات تجريبية عشان تشوف الشكل</button>'}
       </div>
     </section>`;
@@ -153,8 +181,23 @@ function editJob(shopId, job) {
   };
   form.oninput = preview;
   preview();
-  form.onsubmit = e => {
+  form.onsubmit = async e => {
     const action = e.submitter?.value;
+    if (isRemote(shopId) && (action === 'ok' || action === 'delete')) {
+      try {
+        if (action === 'delete') await deleteJob(job.id);
+        else {
+          const f = Object.fromEntries(new FormData(form));
+          await saveJob(shopId, {
+            id: job?.id, service: f.service.trim(), customer: [f.customer.trim(), f.car.trim()].filter(Boolean).join(' • '),
+            date: f.date, labor: Number(f.labor) || 0, partsPrice: Number(f.partsPrice) || 0, partsCost: Number(f.partsCost) || 0,
+          });
+        }
+        jobsCache[shopId] = await loadJobs(shopId);
+        toast(action === 'delete' ? 'اتمسحت' : 'اتحفظ');
+      } catch (ex) { toast(friendlyError(ex)); }
+      return rerender();
+    }
     const jobs = jobsOf(shopId);
     if (action === 'delete') state.market.jobs[shopId] = jobs.filter(x => x !== job);
     else if (action === 'ok') {
@@ -196,7 +239,66 @@ function fillDemoJobs(shopId) {
 
 // ---------- inbox (workshop side of the chat) ----------
 
-export function viewInbox(id) {
+export function viewInbox(arg) {
+  const [id, convId] = arg.split('/');
+  if (isRemote(id)) return convId ? viewRemoteThread(id, convId) : viewRemoteInbox(id);
+  return viewLocalInbox(id);
+}
+
+const when = iso => new Date(iso).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+
+function viewRemoteInbox(id) {
+  const shop = myShop(id);
+  if (!shop) return go('more');
+  inboxCache[id] = null; // always fresh when opening the inbox
+  loadThen(`${id}:list`, inboxCache, () => loadInbox(id));
+  const list = inboxCache[`${id}:list`];
+  view.innerHTML = `
+    <a class="back" href="#biz/${esc(id)}">${icon('chevron-left', 'flip')} الداشبورد</a>
+    <h1 class="page-title">الرسايل والحجوزات</h1>
+    ${!list ? `<p class="notice">${icon('refresh-cw')}<span>بنحمّل الرسايل…</span></p>`
+      : list.length ? `<ul class="list card">${list.map((c, i) => `
+        <li class="conv" data-conv="${esc(c.id)}">
+          <span class="ico">${icon('circle-user')}</span>
+          <div class="grow"><b>عميل ${num(i + 1)}</b><small>${esc(c.last.slice(0, 80))}</small><small>${when(c.lastAt)}</small></div>
+          ${c.unread ? `<span class="count">${num(c.unread)}</span>` : icon('chevron-left', 'chev')}
+        </li>`).join('')}</ul>`
+      : `<div class="empty-state">${icon('message-circle')}<p>لما عميل يكلمك أو يطلب حجز هيظهر هنا.</p></div>`}`;
+  view.querySelectorAll('.conv').forEach(li => li.onclick = () => { delete inboxCache[`${id}:list`]; go(`inbox/${id}/${li.dataset.conv}`); });
+}
+
+const threads = {};
+async function viewRemoteThread(id, convId) {
+  const route = location.hash;
+  const t = threads[convId] || (threads[convId] = { msgs: null, customerId: null });
+  const draw = () => {
+    view.innerHTML = chatLayout({
+      back: `#inbox/${esc(id)}`, title: 'عميل باسبور', subtitle: 'رقم العميل مش بيظهر لك. الكلام كله من هنا', avatar: 'circle-user',
+      mineFrom: 'ws', msgs: t.msgs || [], quick: ['أهلاً، تحت أمرك', 'متاحين النهارده من ٥ لـ ٨', 'السعر شامل المصنعية'],
+      notice: t.msgs ? '' : `<p class="notice">${icon('refresh-cw')}<span>بنحمّل المحادثة…</span></p>`,
+    });
+    bindChat({ onSend: text => sendRemoteMessage(convId, text) });
+  };
+  draw();
+  try {
+    if (!t.customerId) {
+      const list = inboxCache[`${id}:list`] || await loadInbox(id);
+      t.customerId = list.find(c => c.id === convId)?.customerId;
+    }
+    const conv = { id: convId, customer_id: t.customerId };
+    t.msgs = await loadMessages(conv);
+    if (location.hash !== route) return;
+    draw();
+    watchConversation(convId, row => {
+      const m = toMessage(row, t.customerId);
+      if (t.msgs.some(x => x.id === m.id)) return;
+      t.msgs.push(m);
+      if (location.hash === route) appendBubble(m, m.from === 'ws');
+    });
+  } catch (ex) { if (location.hash === route) toast(friendlyError(ex)); }
+}
+
+function viewLocalInbox(id) {
   const shop = myShop(id);
   if (!shop) return go('more');
   const msgs = state.market.chats[id] || [];

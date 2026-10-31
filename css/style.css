@@ -612,3 +612,11 @@ dialog.photo-view img { max-width: 100%; max-height: 80dvh; object-fit: contain;
 .form-error { color: var(--bad); font-size: .88rem; min-height: 1em; }
 .form-error:empty { display: none; }
 .btn:disabled { opacity: .6; cursor: progress; }
+
+/* admin */
+.admin-card { gap: 8px; }
+.admin-card .grow > * { display: block; }
+.admin-card small { color: var(--muted); }
+.owner-line { font-size: .88rem; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.conv { cursor: pointer; }
+.conv .grow small { display: block; }

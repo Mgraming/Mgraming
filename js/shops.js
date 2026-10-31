@@ -8,10 +8,21 @@ import { uid } from './store.js';
 import {
   state, view, modal, esc, num, money, km, today, stars, persist, toast, go, rerender, choose,
 } from './ui.js';
+import { client, auth, friendlyError } from './backend.js';
+import {
+  cache, hasRealMarket, myShops, isRemoteId, online, saveWorkshop, openConversation, loadMessages,
+  sendRemoteMessage, watchConversation, toMessage,
+} from './remote.js';
 
-export const allShops = () => [...state.market.listings, ...DEMO_WORKSHOPS];
-export const findShop = id => allShops().find(w => w.id === id) || null;
+// Real (server) workshops replace the samples as soon as one is approved; until then the samples stay
+// visible next to your own pending listing so the screens aren't empty.
+export const allShops = () => (hasRealMarket()
+  ? cache.shops
+  : [...cache.shops, ...state.market.listings, ...DEMO_WORKSHOPS]);
+export const findShop = id => allShops().find(w => w.id === id) || myShops().find(w => w.id === id) || null;
+export const isMine = w => !!w && (state.market.listings.includes(w) || (w.ownerId && w.ownerId === auth.user?.id));
 const reviewsOf = id => state.market.reviews[id] || [];
+const ratingOf = w => w.rating || ratingSummary(reviewsOf(w.id));
 const minPrice = w => w.services?.length ? Math.min(...w.services.map(s => Number(s.price) || Infinity)) : null;
 
 function shopBadges(w) {
@@ -109,7 +120,7 @@ export function viewWorkshops(car) {
       ${Object.entries(SPECIALTIES).map(([k, s]) => `<button class="chip ${filter.specialty === k ? 'on' : ''}" data-spec="${k}">${icon(s.icon)} ${s.label}</button>`).join('')}
     </div>
 
-    <p class="notice">${icon('info')}<span>الورش اللي تحت <b>أمثلة للعرض</b> لحد ما الورش الحقيقية تنضم. الأسعار توضيحية.</span></p>
+    ${hasRealMarket() ? '' : `<p class="notice">${icon('info')}<span>الورش اللي تحت <b>أمثلة للعرض</b> لحد ما الورش الحقيقية تنضم. الأسعار توضيحية.</span></p>`}
 
     ${shops.length ? `<div class="shop-list">${shops.map(shopCard).join('')}</div>` : `
       <div class="empty-card card">
@@ -150,7 +161,7 @@ export function viewWorkshops(car) {
 }
 
 function shopCard(w) {
-  const r = ratingSummary(reviewsOf(w.id));
+  const r = ratingOf(w);
   const from = minPrice(w);
   return `<article class="shop-card" data-id="${esc(w.id)}" tabindex="0">
     <div class="shop-avatar">${icon(SPECIALTIES[w.specialties[0]]?.icon || 'store')}</div>
@@ -239,7 +250,7 @@ export function viewShop(id) {
   if (!w) return go('workshops');
   const [withDist] = nearbyWorkshops([w], state.location);
   const reviews = reviewsOf(id);
-  const r = ratingSummary(reviews);
+  const r = ratingOf(w);
   const unrated = jobsAt(id).filter(j => !j.rec.reviewed);
 
   view.innerHTML = `
@@ -254,7 +265,7 @@ export function viewShop(id) {
       </div>
     </section>
 
-    ${state.market.listings.includes(w) ? `<a class="notice" href="#biz/${esc(id)}">${icon('gauge')}<span>دي ورشتك. <b>افتح الداشبورد</b></span></a>` : ''}
+    ${isMine(w) ? `<a class="notice" href="#biz/${esc(id)}">${icon('gauge')}<span>دي ورشتك. <b>افتح الداشبورد</b></span></a>` : ''}
     <div class="action-row">
       <a class="btn primary" href="#chat/${esc(id)}">${icon('message-circle')} كلّم الورشة</a>
       <button class="btn" id="book">${icon('calendar')} احجز معاد</button>
@@ -312,12 +323,15 @@ function openBooking(w) {
   </form>`;
   modal.returnValue = '';
   modal.showModal();
-  modal.querySelector('form').onsubmit = e => {
+  modal.querySelector('form').onsubmit = async e => {
     if (e.submitter?.value !== 'ok') return;
     const f = Object.fromEntries(new FormData(e.target));
-    sendMessage(w.id, `طلب حجز: ${f.service} يوم ${f.date}${f.note.trim() ? `\n${f.note.trim()}` : ''}`, 'booking');
-    toast('طلب الحجز اتسجّل في المحادثة');
-    go('chat/' + w.id);
+    const text = `طلب حجز: ${f.service} يوم ${f.date}${f.note.trim() ? `\n${f.note.trim()}` : ''}`;
+    try {
+      await sendMessage(w.id, text, 'booking');
+      toast('طلب الحجز اتبعت للورشة');
+      go('chat/' + w.id);
+    } catch (ex) { toast(friendlyError(ex)); }
   };
 }
 
@@ -353,50 +367,116 @@ function openReview(w, job) {
 
 // ---------- chat ----------
 
-function sendMessage(id, text, kind = 'text') {
+const remoteChat = id => isRemoteId(id) && !!client;
+const conversations = {}; // workshopId → { conv, msgs }
+const msgTime = iso => new Date(iso).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+
+export function bubble(m, mine) {
+  return `<div class="msg ${mine ? 'me' : 'them'} ${m.kind}">${m.kind === 'claim' ? `<b>${icon('shield-check', 'tiny')} طلب ضمان</b>` : m.kind === 'booking' ? `<b>${icon('calendar', 'tiny')} طلب حجز</b>` : ''}<p>${esc(m.text)}</p><time>${msgTime(m.at)}</time></div>`;
+}
+
+// Sends to the server for real workshops (needs sign-in) and keeps a local thread for the samples.
+async function sendMessage(id, text, kind = 'text') {
+  if (remoteChat(id)) {
+    if (!auth.user) { go('account'); throw new Error('سجّل دخول الأول عشان تكلّم الورشة'); }
+    const c = conversations[id] || (conversations[id] = { conv: await openConversation(id), msgs: [] });
+    await sendRemoteMessage(c.conv.id, text, kind);
+    return;
+  }
   (state.market.chats[id] ||= []).push({ id: uid(), from: 'me', text, kind, at: new Date().toISOString() });
   persist();
 }
 
-export function viewChat(id) {
-  const w = findShop(id);
-  if (!w) return go('workshops');
-  const msgs = state.market.chats[id] || [];
-  const time = iso => new Date(iso).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+// Shared chat layout for both sides (customer and workshop inbox).
+export function chatLayout({ back, title, subtitle, notice = '', msgs, mineFrom, quick, avatar = 'store' }) {
+  return `<div class="chat">
+    <header class="chat-head">
+      <a class="icon-btn" href="${back}" aria-label="رجوع">${icon('chevron-left', 'flip')}</a>
+      <div class="shop-avatar sm">${icon(avatar)}</div>
+      <div class="grow"><b>${esc(title)}</b><small class="muted">${esc(subtitle)}</small></div>
+    </header>
+    ${notice}
+    <div class="msgs" id="msgs">
+      ${msgs.length ? msgs.map(m => bubble(m, m.from === mineFrom)).join('')
+        : `<div class="chat-empty">${icon('message-circle')}<p>ابدأ الكلام: اسأل على سعر، أو احجز معاد.</p></div>`}
+    </div>
+    <div class="quick">${quick.map(q => `<button class="chip" data-q="${esc(q)}">${esc(q)}</button>`).join('')}</div>
+    <form class="composer" id="composer">
+      <input id="chat-input" placeholder="اكتب رسالتك…" autocomplete="off" aria-label="الرسالة">
+      <button class="send" aria-label="ابعت">${icon('send', 'flip')}</button>
+    </form>
+  </div>`;
+}
 
-  view.innerHTML = `
-    <div class="chat">
-      <header class="chat-head">
-        <a class="icon-btn" href="#shop/${esc(id)}" aria-label="رجوع">${icon('chevron-left', 'flip')}</a>
-        <div class="shop-avatar sm">${icon('store')}</div>
-        <div class="grow"><b>${esc(w.name)}</b><small class="muted">رقمك مش بيظهر للورشة</small></div>
-      </header>
-      <p class="notice">${icon('info')}<span>نسخة تجريبية: الرسايل بتتحفظ على موبايلك ومش بتوصل للورشة لحد ما نشغّل السيرفر.</span></p>
-      <div class="msgs" id="msgs">
-        ${msgs.length ? msgs.map(m => `<div class="msg ${m.from} ${m.kind}">${m.kind === 'claim' ? `<b>${icon('shield-check', 'tiny')} طلب ضمان</b>` : m.kind === 'booking' ? `<b>${icon('calendar', 'tiny')} طلب حجز</b>` : ''}<p>${esc(m.text)}</p><time>${time(m.at)}</time></div>`).join('')
-          : `<div class="chat-empty">${icon('message-circle')}<p>ابدأ الكلام مع الورشة: اسأل على سعر، أو احجز معاد.</p></div>`}
-      </div>
-      <div class="quick">
-        ${['بكام تغيير الزيت لعربيتي؟', 'متاحين امتى النهارده؟', 'محتاج فحص كمبيوتر'].map(q => `<button class="chip" data-q="${esc(q)}">${esc(q)}</button>`).join('')}
-      </div>
-      <form class="composer" id="composer">
-        <input id="chat-input" placeholder="اكتب رسالتك…" autocomplete="off" aria-label="الرسالة">
-        <button class="send" aria-label="ابعت">${icon('send', 'flip')}</button>
-      </form>
-    </div>`;
-
+export function bindChat({ onSend }) {
   const box = document.getElementById('msgs');
   box.scrollTop = box.scrollHeight;
   const input = document.getElementById('chat-input');
-  document.getElementById('composer').onsubmit = e => {
+  document.getElementById('composer').onsubmit = async e => {
     e.preventDefault();
     const text = input.value.trim();
     if (!text) return;
-    sendMessage(id, text);
-    rerender();
-    document.getElementById('chat-input').focus();
+    input.value = '';
+    try { await onSend(text); } catch (ex) { input.value = text; toast(friendlyError(ex)); }
+    input.focus();
   };
   view.querySelectorAll('[data-q]').forEach(b => b.onclick = () => { input.value = b.dataset.q; input.focus(); });
+}
+
+// Adds a message bubble without re-rendering, so typing isn't interrupted by incoming messages.
+export function appendBubble(m, mine) {
+  const box = document.getElementById('msgs');
+  if (!box) return;
+  box.querySelector('.chat-empty')?.remove();
+  box.insertAdjacentHTML('beforeend', bubble(m, mine));
+  box.scrollTop = box.scrollHeight;
+}
+
+const CUSTOMER_QUICK = ['بكام تغيير الزيت لعربيتي؟', 'متاحين امتى النهارده؟', 'محتاج فحص كمبيوتر'];
+
+export function viewChat(id) {
+  const w = findShop(id);
+  if (!w) return go('workshops');
+  if (remoteChat(id)) return viewRemoteChat(w);
+  const msgs = state.market.chats[id] || [];
+  view.innerHTML = chatLayout({
+    back: `#shop/${esc(id)}`, title: w.name, subtitle: 'رقمك مش بيظهر للورشة', mineFrom: 'me', msgs, quick: CUSTOMER_QUICK,
+    notice: `<p class="notice">${icon('info')}<span>دي ورشة تجريبية: الرسايل بتتحفظ على موبايلك بس.</span></p>`,
+  });
+  bindChat({ onSend: async text => { await sendMessage(id, text); appendBubble({ text, kind: 'text', at: new Date().toISOString() }, true); } });
+}
+
+async function viewRemoteChat(w) {
+  if (!auth.user) {
+    view.innerHTML = `<a class="back" href="#shop/${esc(w.id)}">${icon('chevron-left', 'flip')} ${esc(w.name)}</a>
+      <div class="card empty-card">${icon('message-circle')}<p>سجّل دخول عشان تكلّم الورشة. رقمك مش هيظهر لها.</p>
+      <a class="btn primary" href="#account">${icon('log-in')} سجّل دخول</a></div>`;
+    return;
+  }
+  const route = location.hash;
+  let c = conversations[w.id];
+  const draw = () => {
+    view.innerHTML = chatLayout({
+      back: `#shop/${esc(w.id)}`, title: w.name, subtitle: 'رقمك مش بيظهر للورشة', mineFrom: 'me', msgs: c?.msgs || [], quick: CUSTOMER_QUICK,
+      notice: c ? '' : `<p class="notice">${icon('refresh-cw')}<span>بنحمّل المحادثة…</span></p>`,
+    });
+    bindChat({ onSend: text => sendMessage(w.id, text) });
+  };
+  draw();
+  try {
+    if (!c) c = conversations[w.id] = { conv: await openConversation(w.id), msgs: [] };
+    c.msgs = await loadMessages(c.conv);
+    if (location.hash !== route) return;
+    draw();
+    watchConversation(c.conv.id, row => {
+      const m = toMessage(row, c.conv.customer_id);
+      if (c.msgs.some(x => x.id === m.id)) return;
+      c.msgs.push(m);
+      if (location.hash === route) appendBubble(m, m.from === 'me');
+    });
+  } catch (ex) {
+    if (location.hash === route) toast(friendlyError(ex));
+  }
 }
 
 // ---------- warranty on a record ----------
@@ -433,7 +513,7 @@ export function bindWarranty(rec) {
       if (e.submitter?.value !== 'ok') return;
       const text = new FormData(e.target).get('text').trim();
       (rec.warranty.claims ||= []).push({ date: today(), text, status: 'open' });
-      sendMessage(rec.warranty.workshopId, `${rec.title || 'شغل'} يوم ${rec.date}: ${text}`, 'claim');
+      sendMessage(rec.warranty.workshopId, `${rec.title || 'شغل'} يوم ${rec.date}: ${text}`, 'claim').catch(() => {});
       toast('طلب الضمان اتفتح');
       rerender();
     };
@@ -444,7 +524,13 @@ export function bindWarranty(rec) {
 
 // id: edit an existing local listing; omitted: new workshop sign-up.
 export function viewJoin(id) {
-  const existing = id ? state.market.listings.find(w => w.id === id) : null;
+  const existing = id ? state.market.listings.find(w => w.id === id) || myShops().find(w => w.id === id) : null;
+  if (client && !auth.user) {
+    view.innerHTML = `<a class="back" href="#workshops">${icon('chevron-left', 'flip')} الورش</a>
+      <section class="join-hero"><h1>انضم لباسبور كورشة</h1><p>عشان صفحة ورشتك تظهر للعملا ويكلموك، محتاج تعمل حساب الأول.</p></section>
+      <a class="btn primary wide" href="#account">${icon('log-in')} سجّل دخول أو اعمل حساب</a>`;
+    return;
+  }
   let loc = existing ? AREAS.find(a => a.name === existing.area) || { name: existing.area, gov: '', lat: existing.lat, lng: existing.lng } : null;
   const v = existing || {};
   view.innerHTML = `
@@ -483,7 +569,7 @@ export function viewJoin(id) {
 
       <label class="agree"><input type="checkbox" name="agree" required ${existing ? 'checked' : ''}> موافق أدّي ضمان ${num(WARRANTY.days)} يوم على ${WARRANTY.scope} للشغل اللي بيتسجّل من التطبيق، وعلى شروط باسبور.</label>
       <button class="btn primary" type="submit">${existing ? 'حفظ التعديلات' : 'ابعت طلب الانضمام'}</button>
-      <p class="muted small">في النسخة دي الطلب بيتحفظ على الموبايل ده بس عشان تشوف شكل صفحتك. لما السيرفر يشتغل، الطلب هيروح لفريق المراجعة.</p>
+      <p class="muted small">${online() ? 'الطلب هيروح لفريق باسبور يراجعه. صفحتك هتظهر للعملا بعد الموافقة.' : 'في النسخة دي الطلب بيتحفظ على الموبايل ده بس عشان تشوف شكل صفحتك.'}</p>
     </form>`;
 
   const rows = document.getElementById('price-rows');
@@ -504,7 +590,7 @@ export function viewJoin(id) {
     btn.firstElementChild.textContent = `${loc.name} — ${loc.gov}`;
   };
 
-  document.getElementById('join-form').onsubmit = e => {
+  document.getElementById('join-form').onsubmit = async e => {
     e.preventDefault();
     const fd = new FormData(e.target);
     const specialties = fd.getAll('spec');
@@ -518,6 +604,15 @@ export function viewJoin(id) {
       area: loc.name, lat: loc.lat, lng: loc.lng, specialties, hours: fd.get('hours').trim(),
       about: fd.get('about').trim(), services,
     };
+    if (online()) {
+      const btn = e.target.querySelector('[type=submit]');
+      btn.disabled = true;
+      try {
+        const sid = await saveWorkshop(existing?.remote ? existing.id : null, data);
+        toast(existing ? 'صفحتك اتحدّثت' : 'طلبك وصل! هنراجعه ونفعّل صفحتك');
+        return go('biz/' + sid);
+      } catch (ex) { btn.disabled = false; return toast(friendlyError(ex)); }
+    }
     if (existing) {
       Object.assign(existing, data);
       persist();

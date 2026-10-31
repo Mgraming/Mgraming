@@ -11,8 +11,18 @@ import {
 } from './ui.js';
 import { locationLabel, pickArea, useGps } from './shops.js';
 
-export const allStores = () => [...state.market.stores, ...DEMO_STORES];
-export const findStore = id => allStores().find(s => s.id === id) || null;
+import { client, auth, friendlyError } from './backend.js';
+import {
+  cache, hasRealMarket, myStores, isRemoteId, online, saveStore, placeOrder, loadMyOrders, loadStoreOrders, setOrderStatus, loadMarket,
+} from './remote.js';
+
+// Same rule as workshops: samples disappear once a real store is approved.
+export const allStores = () => (hasRealMarket()
+  ? cache.stores
+  : [...cache.stores, ...state.market.stores, ...DEMO_STORES]);
+export const findStore = id => allStores().find(s => s.id === id) || myStores().find(s => s.id === id) || null;
+const remoteStore = id => isRemoteId(id) && !!client;
+const remoteOrders = { mine: null, store: {} };
 const findProduct = (store, pid) => store?.catalog.find(p => p.id === pid) || null;
 
 export const segNav = active => `<nav class="seg" aria-label="القسم">
@@ -110,7 +120,7 @@ export function viewParts(car) {
     </div>
     <label class="switch"><input type="checkbox" id="fit-only" ${state.fitOnly ? 'checked' : ''}> اللي يناسب ${esc(car.make)} ${esc(car.model)} بس</label>
 
-    <p class="notice">${icon('info')}<span>المحلات والأسعار دي <b>أمثلة للعرض</b> لحد ما المحلات الحقيقية ترفع كتالوجاتها.</span></p>
+    ${hasRealMarket() ? '' : `<p class="notice">${icon('info')}<span>المحلات والأسعار دي <b>أمثلة للعرض</b> لحد ما المحلات الحقيقية ترفع كتالوجاتها.</span></p>`}
 
     ${stores.length ? `<div class="store-strip">${stores.map(s => `
       <a class="store-chip" href="#store/${esc(s.id)}">${icon('store')}<span><b>${esc(s.name)}</b><small>${esc(s.area)}${s.distanceKm != null ? ` • ${km(s.distanceKm)}` : ''}</small></span></a>`).join('')}</div>` : ''}
@@ -181,7 +191,13 @@ export function viewStore(id, car) {
 export function viewCart(car) {
   const groups = [...new Set(state.cart.map(l => l.storeId))].map(id => ({ store: findStore(id), lines: state.cart.filter(l => l.storeId === id) }))
     .filter(g => g.store);
-  const mine = state.market.orders.filter(o => o.buyer === 'me').slice().reverse();
+  if (online() && !remoteOrders.mine) {
+    remoteOrders.mine = [];
+    const route = location.hash;
+    loadMyOrders().then(list => { remoteOrders.mine = list; if (location.hash === route) rerender(); }, () => {});
+  }
+  const mine = [...(remoteOrders.mine || []), ...state.market.orders.filter(o => o.buyer === 'me')]
+    .sort((a, b) => (a.date < b.date ? 1 : -1));
 
   view.innerHTML = `
     <a class="back" href="#parts">${icon('chevron-left', 'flip')} قطع الغيار</a>
@@ -218,11 +234,24 @@ export function viewCart(car) {
     </section>` : ''}`;
 
   bindCartButtons();
-  view.querySelectorAll('.order-form').forEach(f => f.onsubmit = e => {
+  view.querySelectorAll('.order-form').forEach(f => f.onsubmit = async e => {
     e.preventDefault();
     const storeId = f.dataset.store;
     const lines = state.cart.filter(l => l.storeId === storeId);
     const fd = new FormData(f);
+    if (remoteStore(storeId)) {
+      if (!auth.user) { toast('سجّل دخول الأول عشان تطلب'); return go('account'); }
+      const btn = f.querySelector('[type=submit]');
+      btn.disabled = true;
+      try {
+        await placeOrder({ storeId, lines, delivery: fd.get('delivery'), note: fd.get('note').trim(), car: car ? `${car.make} ${car.model} ${car.year}` : '' });
+        state.cart = state.cart.filter(l => l.storeId !== storeId);
+        persist();
+        remoteOrders.mine = null;
+        toast('الطلب وصل للمحل');
+      } catch (ex) { btn.disabled = false; toast(friendlyError(ex)); }
+      return rerender();
+    }
     state.market.orders.push({
       id: uid(), buyer: 'me', storeId, date: today(), status: 'new', delivery: fd.get('delivery'), note: fd.get('note').trim(),
       car: car ? `${car.make} ${car.model} ${car.year}` : '', lines: lines.map(l => ({ ...l })), total: cartTotal(lines),
@@ -332,11 +361,18 @@ function catalogEditor(catalog, onChange) {
 }
 
 export function viewJoinStore(id) {
-  const existing = id ? state.market.stores.find(s => s.id === id) : null;
+  const existing = id ? state.market.stores.find(s => s.id === id) || myStores().find(s => s.id === id) : null;
+  if (client && !auth.user) {
+    view.innerHTML = `<a class="back" href="#parts">${icon('chevron-left', 'flip')} قطع الغيار</a>
+      <section class="join-hero"><h1>انضم لباسبور كمحل قطع غيار</h1><p>عشان كتالوجك يظهر للعملا ويطلبوا منك، محتاج تعمل حساب الأول.</p></section>
+      <a class="btn primary wide" href="#account">${icon('log-in')} سجّل دخول أو اعمل حساب</a>`;
+    return;
+  }
   const v = existing || {};
   let loc = existing ? AREAS.find(a => a.name === existing.area) || { name: existing.area, lat: existing.lat, lng: existing.lng } : null;
-  const catalog = existing ? existing.catalog : [];
-  const editor = catalogEditor(catalog, () => { if (existing) persist(); });
+  // Server stores are edited on a copy and saved with the form; local ones save as you go.
+  const catalog = existing ? (existing.remote ? structuredClone(existing.catalog) : existing.catalog) : [];
+  const editor = catalogEditor(catalog, () => { if (existing && !existing.remote) persist(); });
 
   view.innerHTML = `
     <a class="back" href="${existing ? `#store-biz/${esc(id)}` : '#parts'}">${icon('chevron-left', 'flip')} ${existing ? 'الداشبورد' : 'قطع الغيار'}</a>
@@ -362,7 +398,7 @@ export function viewJoinStore(id) {
       ${editor.html}
       ${existing ? '' : '<label class="agree"><input type="checkbox" required> موافق على شروط باسبور للبيع، وإن الأسعار والكميات اللي برفعها صحيحة.</label>'}
       <button class="btn primary wide" type="submit">${existing ? 'حفظ' : 'افتح المحل'}</button>
-      ${existing ? '' : '<p class="muted small">في النسخة دي المحل بيتحفظ على الموبايل ده بس. لما السيرفر يشتغل، الطلب هيروح لفريق المراجعة.</p>'}
+      ${existing ? '' : `<p class="muted small">${online() ? 'الطلب هيروح لفريق باسبور يراجعه. محلك هيظهر للعملا بعد الموافقة.' : 'في النسخة دي المحل بيتحفظ على الموبايل ده بس.'}</p>`}
     </form>`;
 
   editor.bind();
@@ -374,7 +410,7 @@ export function viewJoinStore(id) {
     btn.classList.remove('empty');
     btn.firstElementChild.textContent = `${loc.name} — ${loc.gov}`;
   };
-  document.getElementById('store-form').onsubmit = e => {
+  document.getElementById('store-form').onsubmit = async e => {
     e.preventDefault();
     if (!loc) return toast('اختار مكان المحل');
     const fd = new FormData(e.target);
@@ -383,6 +419,15 @@ export function viewJoinStore(id) {
       area: loc.name, lat: loc.lat, lng: loc.lng, hours: fd.get('hours').trim(), about: fd.get('about').trim(),
       delivery: fd.get('delivery') === 'on', categories: [...new Set(catalog.map(p => p.category))],
     };
+    if (online()) {
+      const btn = e.target.querySelector('[type=submit]');
+      btn.disabled = true;
+      try {
+        const sid = await saveStore(existing?.remote ? existing.id : null, data, catalog);
+        toast(existing ? 'اتحفظ' : 'طلبك وصل! هنراجعه ونفعّل محلك');
+        return go('store-biz/' + sid);
+      } catch (ex) { btn.disabled = false; return toast(friendlyError(ex)); }
+    }
     if (existing) { Object.assign(existing, data); persist(); toast('اتحفظ'); return go('store-biz/' + existing.id); }
     const store = { id: 'store-' + uid(), pending: true, createdAt: today(), catalog, ...data };
     state.market.stores.push(store);
@@ -397,10 +442,16 @@ export function viewJoinStore(id) {
 let sp = 'month';
 
 export function viewStoreBiz(id) {
-  const s = state.market.stores.find(x => x.id === id);
+  const s = state.market.stores.find(x => x.id === id) || myStores().find(x => x.id === id);
   if (!s) return go('more');
   const t = today();
-  const orders = state.market.orders.filter(o => o.storeId === id);
+  const remote = remoteStore(id) && online();
+  if (remote && !remoteOrders.store[id]) {
+    remoteOrders.store[id] = [];
+    const route = location.hash;
+    loadStoreOrders(id).then(list => { remoteOrders.store[id] = list; if (location.hash === route) rerender(); }, ex => toast(friendlyError(ex)));
+  }
+  const orders = remote ? remoteOrders.store[id] : state.market.orders.filter(o => o.storeId === id);
   const counted = orders.filter(o => o.status !== 'cancelled');
   const stats = periodStats(counted, {
     from: periodStart(sp, t), today: t, months: 6,
@@ -457,7 +508,16 @@ export function viewStoreBiz(id) {
     </section>`;
 
   view.querySelectorAll('[data-period]').forEach(b => b.onclick = () => { sp = b.dataset.period; rerender(); });
-  view.querySelectorAll('[data-order]').forEach(sel => sel.onchange = () => {
+  view.querySelectorAll('[data-order]').forEach(sel => sel.onchange = async () => {
+    if (remote) {
+      try {
+        // The server moves stock and keeps totals; reload both afterwards.
+        await setOrderStatus(sel.dataset.order, sel.value);
+        [remoteOrders.store[id]] = await Promise.all([loadStoreOrders(id), loadMarket()]);
+        toast(`الطلب بقى: ${ORDER_STATUSES[sel.value].label}`);
+      } catch (ex) { toast(friendlyError(ex)); }
+      return rerender();
+    }
     const o = state.market.orders.find(x => x.id === sel.dataset.order);
     const was = o.status;
     o.status = sel.value;

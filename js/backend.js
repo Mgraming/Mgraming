@@ -5,11 +5,14 @@ import { syncNow } from './sync.js';
 import { state, persist } from './ui.js';
 
 const lib = globalThis.supabase;
-export const client = lib?.createClient && SUPABASE_URL.startsWith('https://')
+export let client = lib?.createClient && SUPABASE_URL.startsWith('https://')
   ? lib.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, { auth: { persistSession: true, autoRefreshToken: true } })
   : null;
 
 export const auth = { user: null, ready: false, syncing: false };
+
+// Tests swap in an in-memory client and a fake user.
+export function useClientForTests(c, user) { client = c; auth.user = user; }
 const listeners = new Set();
 export const onAuthChange = fn => listeners.add(fn);
 const notify = () => listeners.forEach(fn => fn(auth));
