@@ -1,10 +1,10 @@
-# Publishes the app to GitHub Pages on every push to main.
+# Publishes the app to GitHub Pages on every push to the app branch (the repository's default branch).
 # One-time setup: repository Settings → Pages → Source: "GitHub Actions".
 name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches: [main, claude/car-passport-app-u3jd6y]
   workflow_dispatch:
 
 permissions:
