@@ -3,9 +3,7 @@ const KEY = 'carpass.v1';
 
 const empty = () => ({ cars: [], activeCarId: null });
 
-export function uid() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-}
+export { newUuid as uid } from './sync.js';
 
 export function load() {
   try {

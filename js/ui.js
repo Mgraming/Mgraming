@@ -33,8 +33,12 @@ export function stars(rating, cls = '') {
     .map(n => `<span class="${n <= full ? 'on' : ''}">${icon('star')}</span>`).join('')}</span>`;
 }
 
-export function persist() {
-  if (!save(state)) toast('مساحة التخزين اتملت. امسح صور فواتير قديمة أو اعمل نسخة احتياطية');
+let afterPersist = () => {};
+export const setAfterPersist = fn => { afterPersist = fn; };
+
+export function persist({ skipSync = false } = {}) {
+  if (!save(state)) toast('مساحة التخزين اتملت. سجّل دخول عشان الصور تتحفظ على السيرفر، أو امسح صور قديمة');
+  if (!skipSync) afterPersist();
 }
 
 export function toast(msg) {

@@ -148,4 +148,24 @@ reset role;
 select test.as_user('00000000-0000-0000-0000-0000000000a2');
 select test.expect((select count(*) from public.orders) = 0, 'other users cannot see my orders');
 reset role;
+
+-- garage sync tables (migration 002)
+reset role;
+select test.as_user('00000000-0000-0000-0000-0000000000a1');
+insert into public.fuel_logs (car_id, date, km, liters, total) values ('10000000-0000-0000-0000-000000000001', current_date, 1000, 40, 700);
+insert into public.car_documents (car_id, type, expiry) values ('10000000-0000-0000-0000-000000000001', 'license', current_date + 30);
+insert into public.service_records (id, car_id, date, km, type, source) values
+  ('80000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', current_date, 1000, 'oil', 'workshop');
+select test.expect((select source from public.service_records where id = '80000000-0000-0000-0000-000000000001') = 'owner',
+  'owner cannot self-certify a record as workshop-confirmed');
+reset role;
+select test.as_user('00000000-0000-0000-0000-0000000000a2');
+select test.expect((select count(*) from public.fuel_logs) = 0 and (select count(*) from public.car_documents) = 0,
+  'fuel log and documents are private to the car owner');
+do $$ begin
+  insert into public.fuel_logs (car_id, date, km, liters) values ('10000000-0000-0000-0000-000000000001', current_date, 1, 1);
+  raise exception 'FAILED: wrote fuel to someone else''s car';
+exception when insufficient_privilege then raise notice 'ok: cannot write to another owner''s car';
+end $$;
+reset role;
 select 'ALL RLS TESTS PASSED' as result;

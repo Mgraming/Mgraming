@@ -9,7 +9,7 @@ import { renderReport } from './report-view.js';
 import { BRANDS, findBrand, yearOptions } from './cars.js';
 import { icon, hydrateIcons } from './icons.js';
 import {
-  state, view, modal, esc, num, money, today, activeCar, persist, toast, go, setRender, ask, choose,
+  state, view, modal, esc, num, money, today, activeCar, persist, toast, go, setRender, setAfterPersist, ask, choose,
   compressImage, download,
 } from './ui.js';
 import {
@@ -17,6 +17,8 @@ import {
 } from './shops.js';
 import { viewBiz, viewInbox } from './biz.js';
 import { viewDocs, viewFuel, editFuel, docsSummary, fuelSummary } from './garage.js';
+import { initAuth, onAuthChange, scheduleSync, auth } from './backend.js';
+import { viewAccount, accountBanner, bindAccountBanner } from './account.js';
 import { viewParts, viewStore, viewCart, viewJoinStore, viewStoreBiz } from './parts.js';
 
 // ---------- small pieces ----------
@@ -170,6 +172,11 @@ function viewWelcome() {
         <li>${icon('qr-code')} تقرير تاريخ العربية للبيع</li>
       </ul>
     </section>
+    ${auth.user ? '' : `<a class="join-cta" href="#account">
+      <span class="join-icon">${icon('log-in')}</span>
+      <span class="grow"><b>عندك حساب؟</b><small>سجّل دخول وعربياتك هترجع لك</small></span>
+      ${icon('chevron-left')}
+    </a>`}
     <h2 class="section-title">ضيف عربيتك</h2>
     ${carForm()}
     <h2 class="section-title">لأصحاب الأعمال</h2>
@@ -234,6 +241,8 @@ function viewHome(car) {
       ${icon('chevron-left', 'chev')}
     </button>` : ''}
 
+    ${accountBanner()}
+
     ${anomalies.length ? `<div class="alert">${icon('triangle-alert')}<span>في ${num(anomalies.length)} قراءة عداد أقل من قراءة قبلها. راجعها في السجل، لأنها بتقلل ثقة المشتري.</span></div>` : ''}
 
     <section class="card">
@@ -284,6 +293,7 @@ function viewHome(car) {
     </section>`;
 
   view.querySelectorAll('[data-action=odometer]').forEach(b => b.onclick = () => openOdometer(car));
+  bindAccountBanner();
   view.querySelector('[data-action=score]').onclick = () => explainScore(car, ts);
   view.querySelectorAll('.record').forEach(li => li.onclick = () => go('add/' + li.dataset.id));
 }
@@ -598,6 +608,9 @@ function viewMore(car) {
   view.innerHTML = `
     <h1 class="page-title">المزيد</h1>
     <ul class="menu card">
+      ${item('#account', auth.user ? 'circle-user' : 'log-in', auth.user ? `حسابي <small class="muted" dir="ltr">${esc(auth.user.email || '')}</small>` : 'سجّل دخول أو اعمل حساب')}
+    </ul>
+    <ul class="menu card">
       ${item('#reminders', 'bell', 'كل التذكيرات')}
       ${item('#docs', 'file-text', 'ورق العربية')}
       ${item('#fuel', 'fuel', 'البنزين والاستهلاك')}
@@ -616,7 +629,7 @@ function viewMore(car) {
       <li><button class="link-row" id="backup">${icon('file-text')}<span>نسخة احتياطية لكل البيانات</span></button></li>
       <li><button class="link-row danger" id="delete-car">${icon('trash-2')}<span>مسح العربية دي</span></button></li>
     </ul>
-    <p class="muted small privacy">${icon('shield-check', 'tiny')} كل بياناتك متخزنة على موبايلك بس. التقرير اللي بتشاركه مفيهوش اسمك ولا رقمك ولا صور الفواتير.</p>`;
+    <p class="muted small privacy">${icon('shield-check', 'tiny')} ${auth.user ? 'بياناتك متحفوظة في حسابك، ومحدش غيرك يقدر يشوفها.' : 'بياناتك متخزنة على موبايلك بس.'} التقرير اللي بتشاركه مفيهوش اسمك ولا رقمك ولا صور الفواتير.</p>`;
 
   document.getElementById('import').onchange = async e => {
     const file = e.target.files[0];
@@ -686,6 +699,7 @@ document.getElementById('car-switch').onchange = e => { state.activeCarId = e.ta
 const TAB_OF = { docs: 'home', fuel: 'home', report: 'passport', shop: 'workshops', chat: 'workshops', join: 'workshops', parts: 'workshops', store: 'workshops', cart: 'workshops', 'join-store': 'workshops' };
 // Pages a workshop or parts-store owner can open without having a car in the app.
 const NO_CAR_ROUTES = {
+  account: () => viewAccount(),
   join: arg => viewJoin(arg), 'join-store': arg => viewJoinStore(arg), biz: arg => viewBiz(arg), 'store-biz': arg => viewStoreBiz(arg),
   inbox: arg => viewInbox(arg), shop: arg => viewShop(arg), store: arg => viewStore(arg, null),
 };
@@ -715,6 +729,7 @@ function render() {
     passport: () => viewPassport(car),
     more: () => viewMore(car),
     reminders: () => viewReminders(car),
+    account: () => viewAccount(),
     docs: () => viewDocs(car),
     fuel: () => viewFuel(car),
     report: () => viewReport(car),
@@ -735,6 +750,14 @@ function render() {
 }
 
 setRender(render);
+setAfterPersist(() => scheduleSync());
+// Re-draw after sign-in / sync on screens that only display data, never under an open form.
+const REFRESH_ROUTES = new Set(['home', 'log', 'account', 'more', 'docs', 'fuel', 'passport', 'reminders']);
+onAuthChange(() => {
+  const route = (location.hash.slice(1) || 'home').split('/')[0];
+  if (!modal.open && (REFRESH_ROUTES.has(route) || !activeCar())) render();
+});
+initAuth();
 hydrateIcons();
 document.querySelectorAll('.tabbar button').forEach(b => b.onclick = () => go(b.dataset.tab));
 window.addEventListener('hashchange', render);
