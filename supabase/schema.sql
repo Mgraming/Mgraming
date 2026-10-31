@@ -479,3 +479,12 @@ do $$ begin
       with check (bucket_id = 'invoices' and (storage.foldername(name))[1] = auth.uid()::text);
   end if;
 end $$;
+
+-- ---------- API access ----------
+-- New Supabase projects may not grant table access to the API roles automatically.
+-- These grants only open the door; row level security above still decides which rows each user can touch.
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on all tables in schema public to authenticated;
+grant select on public.workshops, public.workshop_services, public.reviews, public.workshop_ratings,
+  public.parts_stores, public.products to anon;
+grant execute on all functions in schema public to anon, authenticated;
