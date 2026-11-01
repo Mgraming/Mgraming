@@ -3,6 +3,18 @@
 import { client, auth } from './backend.js';
 import { newUuid, isUuid } from './sync.js';
 import { PLATFORM_FEE_RATE } from './market.js';
+import { state } from './ui.js';
+
+const source = () => state.attribution?.source || null;
+
+// Insert a new listing with its campaign source; if the database hasn't had migration 003 yet,
+// retry without the column so sign-ups never fail because of attribution.
+async function insertListing(table, row) {
+  const withSource = await client.from(table).insert({ ...row, source: source() }).select('id').single();
+  if (!withSource.error) return withSource.data.id;
+  if (!/source/i.test(withSource.error.message || '')) throw withSource.error;
+  return (await check(client.from(table).insert(row).select('id').single())).id;
+}
 
 export const online = () => !!(client && auth.user);
 export const isRemoteId = id => isUuid(id);
@@ -107,7 +119,7 @@ export async function saveWorkshop(id, data) {
   };
   let shopId = id;
   if (id) await check(client.from('workshops').update(row).eq('id', id));
-  else shopId = (await check(client.from('workshops').insert({ ...row, owner_id: auth.user.id }).select('id').single())).id;
+  else shopId = await insertListing('workshops', { ...row, owner_id: auth.user.id });
   await check(client.from('workshop_services').delete().eq('workshop_id', shopId));
   if (data.services.length) {
     await check(client.from('workshop_services').insert(data.services.map((s, i) => ({ workshop_id: shopId, name: s.name, price: s.price, sort: i }))));
@@ -191,7 +203,7 @@ export async function saveStore(id, data, catalog) {
   };
   let storeId = id;
   if (id) await check(client.from('parts_stores').update(row).eq('id', id));
-  else storeId = (await check(client.from('parts_stores').insert({ ...row, owner_id: auth.user.id }).select('id').single())).id;
+  else storeId = await insertListing('parts_stores', { ...row, owner_id: auth.user.id });
   await replaceProducts(storeId, catalog);
   await saveProfile(data);
   await loadMarket();

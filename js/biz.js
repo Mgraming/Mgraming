@@ -73,6 +73,14 @@ export function viewBiz(id) {
       <a class="btn small" href="#shop/${esc(id)}">${icon('eye')} صفحتي زي ما العميل شايفها</a>
       <a class="btn small" href="#join/${esc(id)}">${icon('pencil')} عدّل الصفحة والأسعار</a>
     </div>
+    ${isRemote(id) && !shop.pending ? `<section class="card promo">
+      <h2>${icon('qr-code')} هات عملاك على صفحتك</h2>
+      <p class="muted small">اطبع البوستر وعلّقه في الورشة، أو ابعت لينك صفحتك للعملا على واتساب. كل عميل يدخل من هنا يقدر يحجز ويكلمك ويقيّمك.</p>
+      <div class="actions">
+        <a class="btn small primary" href="poster.html?type=shop&id=${encodeURIComponent(id)}&name=${encodeURIComponent(shop.name)}" target="_blank" rel="noopener">${icon('qr-code')} اطبع بوستر لورشتك</a>
+        <button class="btn small" id="copy-shop-link">${icon('link')} انسخ لينك صفحتك</button>
+      </div>
+    </section>` : ''}
 
     <div class="chips" role="group" aria-label="الفترة">
       ${PERIODS.map(p => `<button class="chip ${p.id === period ? 'on' : ''}" data-period="${p.id}">${p.label}</button>`).join('')}
@@ -138,6 +146,11 @@ export function viewBiz(id) {
     </section>`;
 
   view.querySelectorAll('[data-period]').forEach(b => b.onclick = () => { period = b.dataset.period; rerender(); });
+  document.getElementById('copy-shop-link')?.addEventListener('click', async () => {
+    const link = `${location.href.split('#')[0].split('?')[0]}?src=share-${id.slice(0, 8)}#shop/${id}`;
+    try { await navigator.clipboard.writeText(link); toast('اللينك اتنسخ. ابعته لعملاك'); }
+    catch { toast(link); }
+  });
   document.getElementById('add-job').onclick = () => editJob(id, null);
   view.querySelectorAll('.job').forEach(li => li.onclick = () => editJob(id, jobs.find(j => j.id === li.dataset.id)));
   document.getElementById('fill-demo')?.addEventListener('click', () => { fillDemoJobs(id); rerender(); });

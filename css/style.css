@@ -620,3 +620,5 @@ dialog.photo-view img { max-width: 100%; max-height: 80dvh; object-fit: contain;
 .owner-line { font-size: .88rem; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .conv { cursor: pointer; }
 .conv .grow small { display: block; }
+.promo { background: linear-gradient(180deg, var(--primary-soft), var(--surface) 80%); }
+.promo h2 { display: flex; gap: 8px; align-items: center; }

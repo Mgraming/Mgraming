@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#2a5bf5">
+  <title>باسبور للورش ومحلات قطع الغيار</title>
+  <meta name="description" content="صفحة لورشتك أو محلك على باسبور: عملا من منطقتك، أسعارك واضحة، شات من غير أرقام، وداشبورد لدخلك وربحك.">
+  <meta property="og:title" content="باسبور: عملا جايين لورشتك من منطقتك">
+  <meta property="og:description" content="سجّل ورشتك أو محل قطع الغيار بتاعك في ١٠ دقايق. التسجيل مجاني في فترة الإطلاق.">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Readex+Pro:wght@500;600;700&display=swap">
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    body { padding-bottom: 0; }
+    .lp { max-width: 760px; margin: 0 auto; padding-block: 0 40px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 22px; }
+    .lp-hero { margin-top: 18px; background: linear-gradient(150deg, var(--primary), var(--primary-deep)); color: #fff; border-radius: 26px; padding: 28px 22px; display: flex; flex-direction: column; gap: 14px; position: relative; overflow: hidden; }
+    .lp-hero::after { content: ""; position: absolute; inset: auto -80px -110px auto; width: 300px; height: 300px; border-radius: 50%; border: 34px solid rgb(255 255 255 / .08); }
+    .lp-hero > * { position: relative; z-index: 1; }
+    .lp-hero h1 { font-size: clamp(1.6rem, 6vw, 2.3rem); }
+    .lp-hero p { font-size: 1.05rem; opacity: .93; max-width: 52ch; }
+    .lp-cta { display: flex; flex-wrap: wrap; gap: 10px; }
+    .lp-cta .btn { padding: 14px 20px; font-size: 1rem; }
+    .lp-cta .btn.accent { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .lp-cta .btn.ghost { background: rgb(255 255 255 / .12); border-color: rgb(255 255 255 / .35); color: #fff; }
+    .lp-badge { align-self: flex-start; background: rgb(255 255 255 / .16); padding: 5px 12px; border-radius: 99px; font-size: .85rem; font-weight: 600; }
+    .lp h2 { font-size: 1.35rem; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+    .feat { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 6px; box-shadow: var(--shadow); }
+    .feat .ico { margin-bottom: 4px; }
+    .feat p { color: var(--muted); font-size: .92rem; }
+    .steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; counter-reset: s; }
+    .steps li { counter-increment: s; display: flex; gap: 12px; align-items: flex-start; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+    .steps li::before { content: counter(s, arabic-indic); flex-shrink: 0; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: #fff; font-weight: 700; font-family: var(--font-display); }
+    .steps small { display: block; color: var(--muted); }
+    details { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+    details + details { margin-top: 8px; }
+    summary { font-weight: 600; cursor: pointer; }
+    details p { color: var(--muted); margin-top: 8px; }
+    .lp-final { text-align: center; background: var(--accent-soft); border-radius: 22px; padding: 24px 18px; display: flex; flex-direction: column; gap: 12px; align-items: center; }
+    .lp-final .lp-cta { justify-content: center; }
+    .lp-final .btn.ghost { background: var(--surface); color: var(--text); border-color: var(--line); }
+    footer { text-align: center; color: var(--muted); font-size: .82rem; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./"><img src="icon.svg" alt="" width="30" height="30"><span>باسبور</span></a>
+    <a class="btn small" data-app="#join">سجّل ورشتك</a>
+  </header>
+
+  <main class="lp">
+    <section class="lp-hero">
+      <span class="lp-badge">للورش ومراكز الصيانة ومحلات قطع الغيار</span>
+      <h1>عملا جايين لورشتك من منطقتك</h1>
+      <p>أصحاب العربيات بيسجّلوا صيانة عربياتهم على باسبور، ولما يحتاجوا ورشة بيدوّروا على الأقرب ليهم. خلّي ورشتك تبقى أول اختيار ليهم.</p>
+      <div class="lp-cta">
+        <a class="btn accent" data-app="#join"><span data-icon="wrench"></span> سجّل ورشتك</a>
+        <a class="btn ghost" data-app="#join-store"><span data-icon="package"></span> عندي محل قطع غيار</a>
+      </div>
+    </section>
+
+    <section>
+      <h2>إيه اللي هتاخده؟</h2>
+      <div class="grid">
+        <div class="feat"><span class="ico" data-icon="map-pin"></span><b>عملا من منطقتك</b><p>صاحب العربية بيشوف الورش اللي جنبه بس، مرتبة بالأقرب.</p></div>
+        <div class="feat"><span class="ico" data-icon="tag"></span><b>صفحة بأسعارك</b><p>قايمة أسعار واضحة، ومواعيدك، ومكانك على الخريطة. العميل بيجيلك وهو عارف السعر.</p></div>
+        <div class="feat"><span class="ico" data-icon="message-circle"></span><b>شات وحجز</b><p>العميل بيكلمك ويحجز من التطبيق. ومفيش أرقام بتتنشر.</p></div>
+        <div class="feat"><span class="ico" data-icon="gauge"></span><b>داشبورد لدخلك</b><p>سجّل كل شغلانة واعرف دخلك وصافي ربحك كل شهر.</p></div>
+        <div class="feat"><span class="ico" data-icon="star"></span><b>تقييمات حقيقية</b><p>التقييم بس من عميل اشتغل عندك فعلاً، فسمعتك بتتبني صح.</p></div>
+        <div class="feat"><span class="ico" data-icon="shield-check"></span><b>ضمان باسبور</b><p>ضمان ٣٠ يوم على الشغل بيطمّن العميل الجديد إنه يجرّبك.</p></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>التسجيل في ١٠ دقايق</h2>
+      <ol class="steps">
+        <li><div><b>اعمل حساب</b><small>بإيميلك، من الموبايل.</small></div></li>
+        <li><div><b>اكتب بيانات ورشتك وأسعارك</b><small>المكان، والتخصص، والمواعيد، وقايمة أسعار المصنعية. محلات القطع بترفع الكتالوج من شيت Excel.</small></div></li>
+        <li><div><b>فريق باسبور بيراجع ويوافق</b><small>بنتأكد إن الورشة حقيقية، وبعدها صفحتك بتظهر للعملا.</small></div></li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>أسئلة بتتسأل كتير</h2>
+      <details><summary>التسجيل بكام؟</summary><p>التسجيل مجاني في فترة الإطلاق.</p></details>
+      <details><summary>العميل هيشوف رقم موبايلي؟</summary><p>لأ. الكلام كله بيبقى من الشات جوه التطبيق، ورقمك بيظهر لفريق باسبور بس عشان نتواصل معاك.</p></details>
+      <details><summary>إيه هو ضمان باسبور؟</summary><p>ضمان ٣٠ يوم على المصنعية وقطع الغيار للشغل اللي بيتسجّل من التطبيق. لو نفس المشكلة رجعت، بتصلّحها من غير تكلفة على العميل. وده بيخلّي العملا الجداد يثقوا فيك.</p></details>
+      <details><summary>مش بعرف أتعامل مع التطبيقات</summary><p>فريقنا ممكن ييجي لك ويسجّل الورشة معاك ويرفع أسعارك.</p></details>
+    </section>
+
+    <section class="lp-final">
+      <h2>جاهز؟</h2>
+      <p class="muted">سجّل دلوقتي، وأول ما نوافق هتلاقي ورشتك ظاهرة للعملا اللي حواليك.</p>
+      <div class="lp-cta">
+        <a class="btn primary" data-app="#join"><span data-icon="wrench"></span> سجّل ورشتك</a>
+        <a class="btn ghost" data-app="#join-store"><span data-icon="package"></span> سجّل محل قطع غيار</a>
+      </div>
+    </section>
+    <footer>باسبور العربية</footer>
+  </main>
+
+  <script type="module">
+    import { hydrateIcons } from './js/icons.js';
+    hydrateIcons();
+    // Pass the campaign source through to the app so the sign-up is attributed (default: this page).
+    const q = new URLSearchParams(location.search);
+    const src = q.get('src') || q.get('ref') || 'landing';
+    document.querySelectorAll('[data-app]').forEach(a => { a.href = `./?src=${encodeURIComponent(src)}${a.dataset.app}`; });
+  </script>
+</body>
+</html>

@@ -13,6 +13,9 @@ select item, case when ok then '✅' else '❌' end as status from (
     exists (select 1 from information_schema.tables where table_name = 'fuel_logs')
     and exists (select 1 from information_schema.tables where table_name = 'car_documents')
   union all
+  select 'مصدر التسجيل (تحديث ٠٠٣)',
+    exists (select 1 from information_schema.columns where table_name = 'workshops' and column_name = 'source')
+  union all
   select 'الضمان بيبدأ لوحده',
     exists (select 1 from pg_trigger where tgname = 'jobs_start_warranty')
   union all

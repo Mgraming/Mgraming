@@ -771,6 +771,14 @@ function refreshMarket(force = false) {
   }, () => {}).finally(() => { marketBusy = false; });
 }
 
+// Campaign attribution: links like …/?src=facebook-groups or a poster QR (?src=poster-<id>) are remembered
+// on first visit and saved with a workshop/store sign-up, so outreach channels can be compared.
+try {
+  const q = new URLSearchParams(location.search);
+  const src = (q.get('src') || q.get('ref') || '').trim().slice(0, 60);
+  if (src && !state.attribution) { state.attribution = { source: src, at: today() }; persist({ skipSync: true }); }
+} catch { /* sandboxed views may not expose the query string */ }
+
 setRender(render);
 setAfterPersist(() => scheduleSync());
 // Re-draw after sign-in / sync on screens that only display data, never under an open form.

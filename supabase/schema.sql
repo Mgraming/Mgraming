@@ -555,3 +555,7 @@ $$;
 drop trigger if exists records_guard_source on public.service_records;
 create trigger records_guard_source before insert or update on public.service_records
   for each row execute function public.guard_record_source();
+
+-- 003: remember where each workshop / parts store came from (campaign link, poster, referral) to measure outreach.
+alter table public.workshops add column if not exists source text;
+alter table public.parts_stores add column if not exists source text;

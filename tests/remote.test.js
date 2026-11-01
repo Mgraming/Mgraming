@@ -122,3 +122,26 @@ test('role is read from the profile', async () => {
   as(CUSTOMER);
   assert.equal(await R.loadRole(), 'owner');
 });
+
+test('sign-up records the campaign source, and still works on a database without the column', async () => {
+  const { state } = await import('../js/ui.js');
+  state.attribution = { source: 'poster-test' };
+  as(OWNER);
+  await R.saveWorkshop(null, { name: 'ورشة مصدر', area: 'المعادي', lat: 29.96, lng: 31.25, specialties: ['oil'], services: [] });
+  assert.equal(fake.table('workshops').at(-1).source, 'poster-test');
+
+  // simulate a project that hasn't run migration 003
+  const realFrom = fake.from;
+  fake.from = t => {
+    const q = realFrom(t);
+    if (t !== 'workshops') return q;
+    const insert = q.insert;
+    q.insert = row => (row.source !== undefined ? { select: () => ({ single: async () => ({ data: null, error: { message: 'column "source" of relation "workshops" does not exist' } }) }) } : insert(row));
+    return q;
+  };
+  const before = fake.table('workshops').length;
+  await R.saveWorkshop(null, { name: 'ورشة قديمة', area: 'المعادي', lat: 29.96, lng: 31.25, specialties: ['oil'], services: [] });
+  assert.equal(fake.table('workshops').length, before + 1);
+  fake.from = realFrom;
+  state.attribution = null;
+});

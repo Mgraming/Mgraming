@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>بوستر باسبور</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;600;700&family=Readex+Pro:wght@600;700&display=swap">
+  <style>
+    /* Printed poster: fixed light palette by design (paper), A4/A5 portrait. */
+    :root { --ink: #0e1a2b; --muted: #5d6a80; --blue: #2a5bf5; --blue-deep: #1a3fc4; --orange: #ff7a2f; --paper: #ffffff; color-scheme: light; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #e9edf5; color: var(--ink); font-family: "IBM Plex Sans Arabic", Tahoma, sans-serif; }
+    .bar { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; padding: 14px 16px; }
+    .bar button { font: inherit; font-weight: 600; padding: 10px 18px; border-radius: 12px; border: 0; background: var(--blue); color: #fff; cursor: pointer; }
+    .bar button.alt { background: #fff; color: var(--ink); border: 1px solid #d5dbe6; }
+    .sheet { width: min(148mm, calc(100% - 32px)); margin: 0 auto 24px; background: var(--paper); border-radius: 18px; overflow: hidden; box-shadow: 0 10px 40px rgb(0 0 0 / .12); display: flex; flex-direction: column; }
+    .top { background: linear-gradient(150deg, var(--blue), var(--blue-deep)); color: #fff; padding: 22px 22px 26px; display: flex; flex-direction: column; gap: 8px; }
+    .brand { display: flex; align-items: center; gap: 8px; font-family: "Readex Pro", sans-serif; font-weight: 700; font-size: 1.15rem; }
+    .brand img { width: 34px; height: 34px; border-radius: 9px; background: #fff; }
+    h1 { font-family: "Readex Pro", sans-serif; font-size: 1.85rem; line-height: 1.25; margin: 6px 0 0; text-wrap: balance; }
+    .sub { opacity: .92; margin: 0; font-size: 1.02rem; }
+    .qr-wrap { padding: 22px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+    .qr { width: 62%; max-width: 260px; aspect-ratio: 1; }
+    .qr svg { width: 100%; height: 100%; display: block; }
+    .scan { font-weight: 700; font-size: 1.1rem; display: flex; align-items: center; gap: 8px; }
+    .scan::before { content: ""; width: 12px; height: 12px; border-radius: 50%; background: var(--orange); }
+    .points { list-style: none; margin: 0; padding: 0 22px 22px; display: grid; gap: 8px; }
+    .points li { background: #f3f5fa; border-radius: 12px; padding: 10px 12px; font-weight: 600; }
+    .points li span { color: var(--orange); margin-left: 6px; }
+    .foot { margin-top: auto; padding: 12px 22px 18px; color: var(--muted); font-size: .8rem; text-align: center; direction: ltr; word-break: break-all; }
+    @media print {
+      body { background: #fff; }
+      .bar { display: none; }
+      .sheet { width: 100%; margin: 0; border-radius: 0; box-shadow: none; min-height: 100vh; }
+      @page { size: A5 portrait; margin: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <button onclick="print()">اطبع البوستر</button>
+    <button class="alt" id="copy">انسخ اللينك</button>
+  </div>
+  <article class="sheet">
+    <div class="top">
+      <div class="brand"><img src="icon.svg" alt=""> باسبور العربية</div>
+      <h1 id="title"></h1>
+      <p class="sub" id="sub"></p>
+    </div>
+    <div class="qr-wrap">
+      <div class="qr" id="qr"></div>
+      <div class="scan">صوّر الكود بكاميرا الموبايل</div>
+    </div>
+    <ul class="points" id="points"></ul>
+    <div class="foot" id="link"></div>
+  </article>
+
+  <script src="vendor/qrcode.js"></script>
+  <script>
+    // ?type=shop&id=…&name=…  → customers scan to open the workshop's page (and rate/chat/book).
+    // ?type=join (default)     → workshops scan to read the offer and sign up.
+    const q = new URLSearchParams(location.search);
+    const type = q.get('type') || 'join';
+    const base = new URL('./', location.href).href;
+    const esc = s => String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    let link, title, sub, points;
+    if (type === 'shop' && q.get('id')) {
+      const name = q.get('name') || 'ورشتنا';
+      link = `${base}?src=poster-${encodeURIComponent(q.get('id').slice(0, 8))}#shop/${encodeURIComponent(q.get('id'))}`;
+      title = `${esc(name)} على باسبور`;
+      sub = 'شوف أسعارنا، واحجز معادك، وكلّمنا من التطبيق.';
+      points = ['تذكير بمواعيد صيانة عربيتك', 'ضمان ٣٠ يوم على الشغل المسجّل', 'سجل صيانة كامل يرفع سعر عربيتك لما تبيعها'];
+    } else {
+      link = `${base}for-workshops.html?src=${encodeURIComponent(q.get('src') || 'poster-join')}`;
+      title = 'عملا جايين لورشتك من منطقتك';
+      sub = 'سجّل ورشتك أو محل قطع الغيار بتاعك على باسبور في ١٠ دقايق.';
+      points = ['صفحة لورشتك بأسعارك ومكانك', 'شات وحجز من غير ما رقمك يتنشر', 'داشبورد لدخلك وربحك'];
+    }
+    document.getElementById('title').innerHTML = title;
+    document.getElementById('sub').textContent = sub;
+    document.getElementById('points').innerHTML = points.map(p => `<li><span>✓</span>${esc(p)}</li>`).join('');
+    document.getElementById('link').textContent = link;
+    const qr = qrcode(0, 'M');
+    qr.addData(link);
+    qr.make();
+    document.getElementById('qr').innerHTML = qr.createSvgTag({ cellSize: 6, margin: 1, scalable: true });
+    document.getElementById('copy').onclick = async () => {
+      try { await navigator.clipboard.writeText(link); document.getElementById('copy').textContent = 'اتنسخ ✓'; }
+      catch { prompt('انسخ اللينك:', link); }
+    };
+  </script>
+</body>
+</html>

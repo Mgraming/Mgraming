@@ -34,6 +34,7 @@ function card(kind, x) {
     <small>${details}</small>
     ${prices}
     ${x.about ? `<small class="muted">${esc(x.about)}</small>` : ''}
+    ${x.source ? `<small>${icon('link', 'tiny')} جه من: <b dir="ltr">${esc(x.source)}</b></small>` : ''}
     <div class="owner-line">${icon('circle-user', 'tiny')} ${esc(x.owner.full_name || 'بدون اسم')}
       ${x.owner.phone ? ` • <span dir="ltr" class="selectable">${esc(x.owner.phone)}</span>` : ''}</div>
     <div class="actions">
@@ -60,6 +61,15 @@ export function viewAdmin() {
       <button type="button" class="${tab === 'all' ? 'on' : ''}" data-tab="all">${icon('list-checks')} الباقي</button>
     </nav>
     <p class="muted small">راجع الطلب، واتصل بصاحبه لو محتاج تتأكد، وبعدين وافق. الورشة أو المحل بيظهر للعملا أول ما توافق.</p>
+    <section class="card promo">
+      <h2>${icon('send', 'flip')} أدوات استقطاب الورش</h2>
+      <p class="muted small">ابعت صفحة التعريف للورش، أو اطبع بوستر الدعوة. ضيف <b dir="ltr">?src=</b> واسم القناة عشان تعرف كل ورشة جت منين، وهتلاقيه مكتوب على طلبها هنا.</p>
+      <div class="actions">
+        <a class="btn small primary" href="for-workshops.html" target="_blank" rel="noopener">${icon('eye')} صفحة التعريف للورش</a>
+        <a class="btn small" href="poster.html?type=join&src=poster-join" target="_blank" rel="noopener">${icon('qr-code')} بوستر دعوة الورش</a>
+        <button class="btn small" id="copy-links">${icon('link')} انسخ لينكات القنوات</button>
+      </div>
+    </section>
     ${!data ? `<p class="notice">${icon('refresh-cw')}<span>بنحمّل الطلبات…</span></p>`
       : shown.length ? shown.map(([k, x]) => card(k, x)).join('')
       : `<div class="empty-state">${icon('check')}<p>${tab === 'pending' ? 'مفيش طلبات جديدة.' : 'مفيش ورش أو محلات شغّالة لسه.'}</p></div>`}
@@ -67,6 +77,12 @@ export function viewAdmin() {
 
   view.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; rerender(); });
   document.getElementById('reload').onclick = () => { data = null; rerender(); };
+  document.getElementById('copy-links').onclick = async () => {
+    const base = new URL('for-workshops.html', location.href.split('#')[0]).href.split('?')[0];
+    const text = ['whatsapp', 'facebook', 'visit', 'parts-stores'].map(c => `${c}: ${base}?src=${c}`).join('\n');
+    try { await navigator.clipboard.writeText(text); toast('اتنسخت ٤ لينكات: واتساب، فيسبوك، زيارات، محلات قطع'); }
+    catch { toast(text); }
+  };
   view.querySelectorAll('[data-act]').forEach(b => b.onclick = async () => {
     const { act, kind, id } = b.dataset;
     if (act === 'suspended' && !await ask('متأكد؟ مش هيظهر للعملا تاني لحد ما توافق عليه.', 'تمام')) return;

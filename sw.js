@@ -1,5 +1,5 @@
 // Offline support: network-first so updates show immediately, cached shell when offline.
-const CACHE = 'carpass-v7';
+const CACHE = 'carpass-v8';
 const SHELL = [
   './', 'index.html', 'report.html', 'css/style.css', 'icon.svg', 'manifest.webmanifest',
   'js/app.js', 'js/ui.js', 'js/shops.js', 'js/biz.js', 'js/parts.js', 'js/garage.js', 'js/sync.js', 'js/backend.js', 'js/account.js', 'js/config.js', 'js/remote.js', 'js/admin.js', 'js/market.js', 'js/places.js', 'js/icons.js', 'js/cars.js', 'js/data.js', 'js/logic.js', 'js/store.js', 'js/report.js', 'js/report-view.js',
